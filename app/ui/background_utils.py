@@ -34,10 +34,6 @@ def ensure_transparent(widget: QWidget) -> None:
             stylesheet = transparent_rule
         widget.setStyleSheet(stylesheet)
 
-    palette = widget.palette()
-    palette.setColor(QPalette.Window, Qt.transparent)
-    widget.setPalette(palette)
-
 
 class BackgroundLayer(QObject):
     """Keep a QLabel sized to its host to display a background pixmap."""
