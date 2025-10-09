@@ -47,7 +47,8 @@ class MainWindow(QMainWindow):
         self.menu_button = QToolButton(self)
         self.menu_button.setText("Menu")
         self.menu_button.setPopupMode(QToolButton.InstantPopup)
-        top_row.addWidget(self.menu_button, alignment=Qt.AlignRight)
+        top_row.addWidget(self.menu_button)
+        top_row.addSpacing(50)
 
         layout.addLayout(top_row)
         layout.addStretch(1)
