@@ -56,6 +56,9 @@ class MainWindow(QMainWindow):
             BACKGROUND_IMAGE,
             "main-background",
         )
+        # Keep a direct reference to the QLabel created by ``BackgroundLayer``
+        # so resize handlers can operate on ``_background_label`` as expected.
+        self._background_label = self._background_layer.label
         init_db()
 
         self._warehouses: List[Warehouse] = []
