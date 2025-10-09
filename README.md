@@ -48,6 +48,48 @@ requisicoes-internas/
 └─ pyproject.toml
 ```
 
+### Estrutura atualmente disponível no repositório
+
+> A estrutura acima passou a estar criada por omissão no repositório para
+> facilitar o arranque do desenvolvimento. As pastas ainda sem conteúdo real
+> incluem um ficheiro `.gitkeep` apenas para efeito de versionamento.
+
+```
+requisicoes-internas/
+├─ app/
+│  ├─ cli/
+│  ├─ data/
+│  ├─ reporting/
+│  ├─ services/
+│  ├─ ui/
+│  └─ utils/
+├─ databases/
+│  └─ backups/
+├─ docs/
+│  ├─ ARCHITECTURE.md
+│  ├─ DATA_MODEL.md
+│  ├─ DEV_GUIDE.md
+│  ├─ Explain_Docs.txt
+│  ├─ IMPORT_SPEC.md
+│  ├─ MAPPINGS.md
+│  ├─ NOMENCLATURES.md
+│  ├─ PRINT_SPEC.md
+│  ├─ ROADMAP.md
+│  ├─ TEST_PLAN.md
+│  └─ README copy.md
+├─ imports/
+│  ├─ examples/
+│  ├─ incoming/
+│  └─ processed/
+├─ tests/
+│  └─ datasets/
+├─ AGENTS.md
+├─ .env.example
+├─ README.md
+├─ pyproject.toml
+└─ requirements.txt
+```
+
 ---
 
 ## Quickstart (MVP - CLI)
