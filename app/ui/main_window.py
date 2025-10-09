@@ -1,55 +1,66 @@
 """Main window for the requisitions UI."""
-from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import Dict, Iterable, List
+from pathlib import Path
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QCheckBox,
-    QFileDialog,
     QHBoxLayout,
-    QLabel,
-    QLineEdit,
-    QListWidget,
-    QListWidgetItem,
     QMainWindow,
+    QMenu,
     QMessageBox,
-    QPushButton,
-    QStatusBar,
-    QTableWidget,
-    QTableWidgetItem,
+    QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.data.db import get_connection, init_db
+from app.data.db import init_db
 from app.ui.assets import BACKGROUND_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
-from app.services.printer import (
-    ArticleFilter,
-    build_print_context,
-    export_context_json,
-    export_csv_simple,
-    filter_articles,
+from app.services.importer import (
+    build_warehouse_articles_from_disp,
+    import_article_barcodes,
+    import_netbo_articles,
+    import_wharehouses,
 )
 
 
-@dataclass(slots=True)
-class Warehouse:
-    codigo: str
-    nome: str
+MENU_STYLESHEET = """
+QMenu {
+    background-color: rgba(245, 222, 179, 160);
+    border: 1px solid rgba(189, 183, 107, 180);
+    border-radius: 12px;
+    padding: 6px;
+}
+
+QMenu::item {
+    background-color: transparent;
+    border-radius: 8px;
+    padding: 6px 20px;
+    color: #202020;
+}
+
+QMenu::item:selected {
+    background-color: rgba(255, 255, 255, 90);
+}
+
+QMenu::separator {
+    height: 1px;
+    background: rgba(0, 0, 0, 40);
+    margin: 4px 0;
+}
+"""
 
 
 class MainWindow(QMainWindow):
-    """Simple GUI for selecting warehouses and exporting requisition data."""
+    """Minimal main window that exposes a menu button."""
 
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
         self.setFixedSize(1024, 768)
+        self.setStyleSheet(
+            "QMainWindow, #central-widget { background: transparent; }"
+        )
         ensure_transparent(self)
         self._background_layer = BackgroundLayer(
             self,
@@ -61,287 +72,154 @@ class MainWindow(QMainWindow):
         self._background_label = self._background_layer.label
         init_db()
 
-        self._warehouses: List[Warehouse] = []
-        self._article_cache: Dict[str, List[dict]] = {}
-        self._warehouse_totals: Dict[str, Dict[str, object]] = {}
-        self._current_warehouse: Warehouse | None = None
-
         central = QWidget(self)
         central.setObjectName("central-widget")
         ensure_transparent(central)
+
         layout = QVBoxLayout(central)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
 
-        description = QLabel(
-            "Selecione um ou mais armazéns para exportar os ficheiros JSON/CSV\n"
-            "que alimentam o ReportBro (fase PDFs)."
+        top_row = QHBoxLayout()
+        top_row.setContentsMargins(0, 0, 0, 0)
+        top_row.addStretch()
+
+        self.menu_button = QToolButton(self)
+        self.menu_button.setText("Menu")
+        self.menu_button.setPopupMode(QToolButton.InstantPopup)
+        ensure_transparent(self.menu_button)
+        size_hint = self.menu_button.sizeHint()
+        scale_factor = 1.4  # 30% smaller than the previous doubled size
+        self.menu_button.setFixedSize(
+            int(size_hint.width() * scale_factor),
+            int(size_hint.height() * scale_factor),
         )
-        description.setWordWrap(True)
-        layout.addWidget(description)
-
-        self.list_widget = QListWidget(self)
-        self.list_widget.setSelectionMode(QListWidget.MultiSelection)
-        self.list_widget.currentItemChanged.connect(self._on_current_warehouse_changed)
-        layout.addWidget(self.list_widget)
-
-        filters_row = QHBoxLayout()
-
-        self.search_input = QLineEdit(self)
-        self.search_input.setPlaceholderText("Filtrar por código ou produto…")
-        self.search_input.textChanged.connect(self._apply_filters)
-        filters_row.addWidget(self.search_input, stretch=1)
-
-        self.only_missing_checkbox = QCheckBox("Apenas sem código", self)
-        self.only_missing_checkbox.toggled.connect(self._apply_filters)
-        filters_row.addWidget(self.only_missing_checkbox)
-
-        layout.addLayout(filters_row)
-
-        self.apply_filters_checkbox = QCheckBox(
-            "Aplicar filtros na exportação", self
+        self.menu_button.setStyleSheet(
+            "QToolButton { font-size: 16px; padding: 6px 18px; border: none; }"
         )
-        layout.addWidget(self.apply_filters_checkbox)
+        top_row.addWidget(self.menu_button)
+        top_row.addSpacing(100)
 
-        self.summary_label = QLabel(
-            "Selecione um armazém para pré-visualizar os artigos.", self
-        )
-        self.summary_label.setWordWrap(True)
-        layout.addWidget(self.summary_label)
-
-        self.article_table = QTableWidget(self)
-        self.article_table.setColumnCount(6)
-        self.article_table.setHorizontalHeaderLabels(
-            [
-                "Código",
-                "Produto",
-                "Unidade",
-                "Quantidade",
-                "Código de Barras",
-                "Tipo",
-            ]
-        )
-        self.article_table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.article_table.setEditTriggers(QTableWidget.NoEditTriggers)
-        self.article_table.setAlternatingRowColors(True)
-        self.article_table.horizontalHeader().setStretchLastSection(True)
-        layout.addWidget(self.article_table, stretch=1)
-
-        self.export_selected_btn = QPushButton("Exportar selecionados", self)
-        self.export_selected_btn.clicked.connect(self._export_selected)
-        layout.addWidget(self.export_selected_btn)
-
-        self.export_all_btn = QPushButton("Exportar todos", self)
-        self.export_all_btn.clicked.connect(self._export_all)
-        layout.addWidget(self.export_all_btn)
-
-        self.refresh_btn = QPushButton("Atualizar lista", self)
-        self.refresh_btn.clicked.connect(self.refresh_warehouses)
-        layout.addWidget(self.refresh_btn)
-
-        self.status_bar = QStatusBar(self)
-        self.setStatusBar(self.status_bar)
+        layout.addLayout(top_row)
+        layout.addStretch(1)
 
         self.setCentralWidget(central)
-        ensure_transparent(self.statusBar())
 
-        self.refresh_warehouses()
-
+        self._configure_menu()
         self._background_label.resize(self.size())
 
-    # ------------------------------------------------------------------
-    # Qt event handlers
-    # ------------------------------------------------------------------
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
         self._background_label.resize(self.size())
 
-    # ------------------------------------------------------------------
-    # Data helpers
-    # ------------------------------------------------------------------
-    def refresh_warehouses(self) -> None:
-        """Load the list of warehouses from the database."""
+    def _configure_menu(self) -> None:
+        menu = QMenu(self.menu_button)
+        self._apply_menu_styling(menu)
 
-        self._warehouses = self._fetch_warehouses()
-        self._article_cache.clear()
-        self._warehouse_totals.clear()
-        self._current_warehouse = None
-        self.list_widget.clear()
-        for wh in self._warehouses:
-            item = QListWidgetItem(f"{wh.codigo} — {wh.nome}")
-            item.setData(Qt.UserRole, wh)
-            self.list_widget.addItem(item)
-        if self._warehouses:
-            self.list_widget.setCurrentRow(0)
-        else:
-            self.article_table.setRowCount(0)
-            self.summary_label.setText(
-                "Nenhum armazém disponível. Importe dados antes de continuar."
-            )
-        self.status_bar.showMessage(
-            f"Armazéns disponíveis: {len(self._warehouses)}",
-            5000,
+        base_de_dados_menu = menu.addMenu("Base de Dados")
+        self._apply_menu_styling(base_de_dados_menu)
+        base_de_dados_menu.addAction("Atualizar Dados")
+        importar_dados_action = base_de_dados_menu.addAction("Importar Dados")
+        importar_dados_action.triggered.connect(self._import_incoming_excels)
+        seguranca_menu = base_de_dados_menu.addMenu("Segurança")
+        self._apply_menu_styling(seguranca_menu)
+        seguranca_menu.addAction("Segurança")
+        seguranca_menu.addAction("Reposição")
+
+        tabelas_menu = menu.addMenu("Tabelas")
+        self._apply_menu_styling(tabelas_menu)
+        tabelas_menu.addAction("Tipos Artigos")
+
+        utilitarios_menu = menu.addMenu("Utilitários")
+        self._apply_menu_styling(utilitarios_menu)
+        gestao_documentos_menu = utilitarios_menu.addMenu("Gestão de Documentos")
+        self._apply_menu_styling(gestao_documentos_menu)
+        gestao_documentos_menu.addAction("Editor de Documentos")
+        gestao_documentos_menu.addAction("Modelos Activos")
+        gestao_documentos_menu.addAction("Actualizar Documentos")
+
+        configuracoes_menu = menu.addMenu("Configurações")
+        self._apply_menu_styling(configuracoes_menu)
+
+        parametrizacoes_menu = menu.addMenu("Parametrizações")
+        self._apply_menu_styling(parametrizacoes_menu)
+        integracao_menu = parametrizacoes_menu.addMenu("Integração")
+        self._apply_menu_styling(integracao_menu)
+        integracao_menu.addAction("NETbo (Excel)")
+        integracao_menu.addAction("NETbo (API)")
+        integracao_menu.addAction("StoresAce (Excel)")
+        parametrizacoes_menu.addAction("Moeda")
+
+        self.menu_button.setMenu(menu)
+
+    def _apply_menu_styling(self, menu: QMenu) -> None:
+        """Apply the shared stylesheet for beige semi-transparent menus."""
+
+        menu.setStyleSheet(MENU_STYLESHEET)
+
+    def _import_incoming_excels(self) -> None:
+        """Import Excel files from ``imports/incoming`` and archive them."""
+
+        incoming_dir = Path("imports/incoming")
+        processed_dir = Path("imports/processed")
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        tasks = (
+            ("netbo_articles.xlsx", import_netbo_articles, "NetboArticles"),
+            ("Lojas e Armazens.xlsx", import_wharehouses, "Wharehouses"),
+            ("article_barcodes.xlsx", import_article_barcodes, "ArticleBarcodes"),
         )
 
-    def _fetch_warehouses(self) -> List[Warehouse]:
-        with get_connection() as conn:
-            rows = conn.execute(
-                "SELECT Codigo, Nome FROM Wharehouses ORDER BY Codigo"
-            ).fetchall()
-        return [Warehouse(codigo=row["Codigo"], nome=row["Nome"]) for row in rows]
+        imported = []
+        missing = []
+        errors = []
 
-    def _on_current_warehouse_changed(
-        self,
-        current: QListWidgetItem | None,
-        _previous: QListWidgetItem | None,
-    ) -> None:
-        if current is None:
-            self._current_warehouse = None
-            self.article_table.setRowCount(0)
-            self.summary_label.setText(
-                "Selecione um armazém para pré-visualizar os artigos."
-            )
-            return
+        for file_name, importer, label in tasks:
+            src = incoming_dir / file_name
+            if not src.exists():
+                missing.append(file_name)
+                continue
 
-        warehouse: Warehouse = current.data(Qt.UserRole)
-        self._current_warehouse = warehouse
-        self._load_articles_for(warehouse)
-
-    def _load_articles_for(self, warehouse: Warehouse) -> None:
-        try:
-            context = build_print_context(warehouse.codigo)
-        except Exception as exc:  # pragma: no cover - error path
-            QMessageBox.warning(
-                self,
-                "Erro ao carregar",
-                f"Falha ao carregar artigos para {warehouse.codigo}: {exc}",
-            )
-            self.article_table.setRowCount(0)
-            self.summary_label.setText(
-                "Não foi possível carregar os artigos do armazém selecionado."
-            )
-            return
-
-        artigos = context["artigos"]
-        self._article_cache[warehouse.codigo] = artigos
-        self._warehouse_totals[warehouse.codigo] = {
-            "total": len(artigos),
-            "missing": sum(1 for a in artigos if not a["barcode_value"]),
-            "nome": context["warehouse"]["Nome"],
-        }
-
-        self.status_bar.showMessage(
-            (
-                f"{warehouse.codigo} — {context['warehouse']['Nome']}: "
-                f"{len(artigos)} artigos (sem código: "
-                f"{self._warehouse_totals[warehouse.codigo]['missing']})"
-            ),
-            5000,
-        )
-        self._apply_filters()
-
-    def _current_article_filter(self) -> ArticleFilter:
-        return ArticleFilter(
-            text=self.search_input.text(),
-            only_missing_barcodes=self.only_missing_checkbox.isChecked(),
-        )
-
-    def _apply_filters(self) -> None:
-        if self._current_warehouse is None:
-            return
-
-        codigo = self._current_warehouse.codigo
-        artigos = self._article_cache.get(codigo, [])
-        article_filter = self._current_article_filter()
-        filtered = filter_articles(artigos, article_filter)
-
-        self.article_table.setRowCount(len(filtered))
-        for row, artigo in enumerate(filtered):
-            self._set_row(row, artigo)
-
-        total = self._warehouse_totals.get(codigo, {}).get("total", len(artigos))
-        total_missing = self._warehouse_totals.get(codigo, {}).get("missing", 0)
-        filtered_missing = sum(1 for a in filtered if not a["barcode_value"])
-        summary_text = (
-            f"{len(filtered)} de {total} artigos visíveis — sem código: {filtered_missing}"
-        )
-        if total_missing and total_missing != filtered_missing:
-            summary_text += f" (total sem código: {total_missing})"
-        self.summary_label.setText(summary_text)
-
-    def _set_row(self, row: int, artigo: dict) -> None:
-        values = [
-            artigo.get("Codigo", ""),
-            artigo.get("Produto", ""),
-            artigo.get("Unidade", ""),
-            artigo.get("Quantidade", ""),
-            artigo.get("barcode_value", "") or "",
-            artigo.get("barcode_type", "") or "",
-        ]
-        for column, value in enumerate(values):
-            item = QTableWidgetItem(str(value))
-            item.setFlags(item.flags() & ~Qt.ItemIsEditable)
-            self.article_table.setItem(row, column, item)
-
-    # ------------------------------------------------------------------
-    # Export helpers
-    # ------------------------------------------------------------------
-    def _ask_output_dir(self) -> Path | None:
-        directory = QFileDialog.getExistingDirectory(
-            self,
-            "Selecionar diretório de saída",
-            str(Path.cwd() / "out"),
-        )
-        if not directory:
-            return None
-        return Path(directory)
-
-    def _export_selected(self) -> None:
-        warehouses = [item.data(Qt.UserRole) for item in self.list_widget.selectedItems()]
-        self._export_warehouses(warehouses)
-
-    def _export_all(self) -> None:
-        self._export_warehouses(self._warehouses)
-
-    def _export_warehouses(self, warehouses: Iterable[Warehouse]) -> None:
-        warehouses = list(warehouses)
-        if not warehouses:
-            QMessageBox.information(self, "Exportação", "Nenhum armazém selecionado.")
-            return
-        output_dir = self._ask_output_dir()
-        if output_dir is None:
-            return
-        output_dir.mkdir(parents=True, exist_ok=True)
-
-        exported = 0
-        filters = self._current_article_filter() if self.apply_filters_checkbox.isChecked() else None
-        for wh in warehouses:
             try:
-                export_context_json(
-                    wh.codigo,
-                    str(output_dir / f"{wh.codigo}.json"),
-                    filters=filters,
-                )
-                export_csv_simple(
-                    wh.codigo,
-                    str(output_dir / f"{wh.codigo}.csv"),
-                    filters=filters,
-                )
-                exported += 1
-            except Exception as exc:  # pragma: no cover - user feedback path
-                QMessageBox.warning(
-                    self,
-                    "Erro na exportação",
-                    f"Falha ao exportar {wh.codigo}: {exc}",
-                )
-                return
+                rows = importer(str(src))
+            except Exception as exc:  # pragma: no cover - user interaction
+                errors.append(f"{file_name}: {exc}")
+                continue
 
-        QMessageBox.information(
-            self,
-            "Exportação concluída",
-            f"Exportação concluída para {exported} armazéns em {output_dir}.",
-        )
-        self.status_bar.showMessage(
-            f"Exportação concluída ({exported} armazéns)",
-            5000,
-        )
+            dest = processed_dir / file_name
+            if dest.exists():
+                dest.unlink()
+            src.replace(dest)
+            imported.append(f"{label}: {rows} linhas")
+
+        if imported:
+            try:
+                build_warehouse_articles_from_disp()
+            except Exception as exc:  # pragma: no cover - user interaction
+                errors.append(f"WarehouseArticles: {exc}")
+
+        if errors:
+            message = "Ocorreram erros ao importar:\n" + "\n".join(errors)
+            if imported:
+                message += "\n\nImportações concluídas:\n" + "\n".join(imported)
+            if missing:
+                message += "\n\nFicheiros em falta:\n" + "\n".join(missing)
+            QMessageBox.critical(self, "Importação com erros", message)
+            return
+
+        if not imported:
+            if missing:
+                message = (
+                    "Não foram encontrados ficheiros para importar.\n\n"
+                    "Esperados:\n" + "\n".join(missing)
+                )
+            else:
+                message = "Não existem ficheiros para importar em imports/incoming."
+            QMessageBox.information(self, "Sem dados", message)
+            return
+
+        message_lines = ["Importação concluída com sucesso:"] + imported
+        if missing:
+            message_lines.append("\nFicheiros em falta:")
+            message_lines.extend(missing)
+        QMessageBox.information(self, "Importação concluída", "\n".join(message_lines))
