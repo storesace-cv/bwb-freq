@@ -1,7 +1,6 @@
 """Utilities for managing transparent backgrounds in Qt widgets."""
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
 from PySide6.QtCore import QEvent, QObject, Qt
@@ -19,16 +18,15 @@ def ensure_transparent(widget: QWidget) -> None:
     widget.setStyleSheet("background: transparent;")
 
 
-@dataclass(slots=True)
 class BackgroundLayer(QObject):
     """Keep a QLabel sized to its host to display a background pixmap."""
 
-    host: QWidget
-    image_path: Path
-    object_name: str = "background-layer"
+    def __init__(self, host: QWidget, image_path: Path, object_name: str = "background-layer") -> None:
+        super().__init__(host)
+        self.host = host
+        self.image_path = image_path
+        self.object_name = object_name
 
-    def __post_init__(self) -> None:
-        super().__init__(self.host)
         self._label = QLabel(self.host)
         self._label.setObjectName(self.object_name)
         self._label.setAttribute(Qt.WA_TranslucentBackground, True)
