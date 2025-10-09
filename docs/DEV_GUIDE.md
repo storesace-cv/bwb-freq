@@ -31,3 +31,7 @@ pytest -q
 ```
 
 - Exemplos de Excel: `imports/examples/` (os testes copiam ou sintetizam dados a partir daqui).
+
+## UI Assets
+- `app/ui/bwb-Splash.png` — imagem de splash screen (fase futura da GUI).
+- `app/ui/bwb-Splash-background.png` — background a aplicar na janela principal.
