@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -49,7 +50,22 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Requisições Internas — MVP")
         self.setFixedSize(1024, 768)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAttribute(Qt.WA_NoSystemBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAutoFillBackground(False)
+        self.setStyleSheet("background: transparent;")
+
+        background_pixmap = QPixmap(
+            str(Path(__file__).with_name("bwb-Splash-background.png"))
+        )
+        self._background_label = QLabel(self)
+        self._background_label.setObjectName("main-background")
+        self._background_label.setPixmap(background_pixmap)
+        self._background_label.setScaledContents(True)
+        self._background_label.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._background_label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
+        self._background_label.setStyleSheet("background: transparent;")
+        self._background_label.lower()
         init_db()
 
         self._warehouses: List[Warehouse] = []
@@ -60,8 +76,10 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         central.setObjectName("central-widget")
         central.setAttribute(Qt.WA_TranslucentBackground, True)
+        central.setAttribute(Qt.WA_NoSystemBackground, True)
         central.setAttribute(Qt.WA_StyledBackground, True)
         central.setAutoFillBackground(False)
+        central.setStyleSheet("background: transparent;")
         layout = QVBoxLayout(central)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -136,13 +154,19 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
 
         self.setCentralWidget(central)
-        self.setStyleSheet(
-            "QMainWindow { background: transparent; }\n"
-            "#central-widget { background: transparent; }\n"
-            "QStatusBar { background: transparent; }"
-        )
+        self.statusBar().setAttribute(Qt.WA_TranslucentBackground, True)
+        self.statusBar().setStyleSheet("background: transparent;")
 
         self.refresh_warehouses()
+
+        self._background_label.resize(self.size())
+
+    # ------------------------------------------------------------------
+    # Qt event handlers
+    # ------------------------------------------------------------------
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._background_label.resize(self.size())
 
     # ------------------------------------------------------------------
     # Data helpers
