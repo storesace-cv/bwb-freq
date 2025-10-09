@@ -6,6 +6,7 @@ from pathlib import Path
 from typing import Dict, Iterable, List
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -50,6 +51,16 @@ class MainWindow(QMainWindow):
         self.setFixedSize(1024, 768)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
+
+        background_pixmap = QPixmap(
+            str(Path(__file__).with_name("bwb-Splash-background.png"))
+        )
+        self._background_label = QLabel(self)
+        self._background_label.setObjectName("main-background")
+        self._background_label.setPixmap(background_pixmap)
+        self._background_label.setScaledContents(True)
+        self._background_label.setAttribute(Qt.WA_TranslucentBackground, True)
+        self._background_label.lower()
         init_db()
 
         self._warehouses: List[Warehouse] = []
@@ -143,6 +154,15 @@ class MainWindow(QMainWindow):
         )
 
         self.refresh_warehouses()
+
+        self._background_label.resize(self.size())
+
+    # ------------------------------------------------------------------
+    # Qt event handlers
+    # ------------------------------------------------------------------
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._background_label.resize(self.size())
 
     # ------------------------------------------------------------------
     # Data helpers

@@ -21,6 +21,15 @@ class SplashScreen(QDialog):
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setStyleSheet("background: transparent;")
 
+        background_pixmap = QPixmap(
+            str(Path(__file__).with_name("bwb-Splash-background.png"))
+        )
+        self._background_label = QLabel(self)
+        self._background_label.setObjectName("splash-background")
+        self._background_label.setPixmap(background_pixmap)
+        self._background_label.setScaledContents(True)
+        self._background_label.setAttribute(Qt.WA_TranslucentBackground, True)
+
         pixmap = QPixmap(str(Path(__file__).with_name("bwb-Splash.png")))
         self._label = QLabel(self)
         self._label.setObjectName("splash-image")
@@ -28,19 +37,24 @@ class SplashScreen(QDialog):
         self._label.setScaledContents(True)
         self._label.setAttribute(Qt.WA_TranslucentBackground, True)
 
-        if not pixmap.isNull():
+        if not background_pixmap.isNull():
+            self.setFixedSize(background_pixmap.size())
+        elif not pixmap.isNull():
             self.setFixedSize(pixmap.size())
         else:
             # Fallback size when the image fails to load.
             self.setFixedSize(800, 500)
 
+        self._background_label.resize(self.size())
         self._label.resize(self.size())
+        self._label.raise_()
 
     # ------------------------------------------------------------------
     # Qt event handlers
     # ------------------------------------------------------------------
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
+        self._background_label.resize(self.size())
         self._label.resize(self.size())
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
