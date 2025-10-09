@@ -17,27 +17,37 @@ def _ensure_requirements_installed() -> None:
     if not req_file.exists():
         return
 
-    # try to import pkg_resources to verify requirements
+    requirements: list[str]
     try:
         import pkg_resources
+    except ModuleNotFoundError:
+        print(
+            "⚠️ pkg_resources is unavailable — installing requirements directly.",
+            file=sys.stderr,
+        )
+    else:
         with req_file.open("r", encoding="utf-8") as f:
             requirements = [
                 line.strip()
                 for line in f
                 if line.strip() and not line.strip().startswith("#")
             ]
+
         try:
             pkg_resources.require(requirements)
-            return  # all good
-        except Exception:
-            print("📦 Requirements missing or outdated — installing...", file=sys.stderr)
-    except Exception:
-        print("⚠️ Could not verify requirements — proceeding with install.", file=sys.stderr)
+        except (pkg_resources.DistributionNotFound, pkg_resources.VersionConflict):
+            print(
+                "📦 Requirements missing or outdated — installing...",
+                file=sys.stderr,
+            )
+        except Exception as exc:  # pragma: no cover - defensive path
+            print(
+                f"⚠️ Could not verify requirements ({exc!s}) — installing anyway.",
+                file=sys.stderr,
+            )
+        else:
+            return
 
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
-        check=False,
-    )
     subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)], check=True)
 
 
