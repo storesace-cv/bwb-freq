@@ -22,6 +22,7 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
         self.setFixedSize(1024, 768)
+        self.setStyleSheet("QMainWindow { background: transparent; }")
         ensure_transparent(self)
         self._background_layer = BackgroundLayer(
             self,
@@ -47,8 +48,11 @@ class MainWindow(QMainWindow):
         self.menu_button = QToolButton(self)
         self.menu_button.setText("Menu")
         self.menu_button.setPopupMode(QToolButton.InstantPopup)
+        ensure_transparent(self.menu_button)
+        size_hint = self.menu_button.sizeHint()
+        self.menu_button.setFixedSize(size_hint.width() * 2, size_hint.height() * 2)
         top_row.addWidget(self.menu_button)
-        top_row.addSpacing(50)
+        top_row.addSpacing(100)
 
         layout.addLayout(top_row)
         layout.addStretch(1)

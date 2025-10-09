@@ -16,7 +16,23 @@ def ensure_transparent(widget: QWidget) -> None:
     widget.setAttribute(Qt.WA_OpaquePaintEvent, False)
     widget.setAttribute(Qt.WA_StyledBackground, True)
     widget.setAutoFillBackground(False)
-    widget.setStyleSheet("background: transparent;")
+
+    palette = widget.palette()
+    palette.setColor(QPalette.Window, Qt.transparent)
+    palette.setColor(QPalette.Base, Qt.transparent)
+    palette.setColor(QPalette.Button, Qt.transparent)
+    widget.setPalette(palette)
+
+    stylesheet = widget.styleSheet().strip()
+    transparent_rule = "background-color: rgba(0, 0, 0, 0);"
+    if transparent_rule not in stylesheet:
+        if stylesheet:
+            if not stylesheet.rstrip().endswith(";"):
+                stylesheet = f"{stylesheet};"
+            stylesheet = f"{stylesheet}\n{transparent_rule}"
+        else:
+            stylesheet = transparent_rule
+        widget.setStyleSheet(stylesheet)
 
     palette = widget.palette()
     palette.setColor(QPalette.Window, Qt.transparent)
