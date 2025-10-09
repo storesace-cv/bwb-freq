@@ -1,5 +1,32 @@
 #!/usr/bin/env python3
 """Launcher script for the requisitions Qt GUI."""
+
+from __future__ import annotations
+
+import importlib.util
+import sys
+
+
+def _ensure_qt_is_installed() -> None:
+    """Exit early with guidance if PySide6 is missing."""
+
+    if importlib.util.find_spec("PySide6") is not None:
+        return
+
+    message = "\n".join(
+        [
+            "PySide6 is required to launch the requisitions GUI but was not found.",
+            "Install the project's dependencies with one of the following commands:",
+            "  pip install -r requirements.txt",
+            "  poetry install",
+        ]
+    )
+    print(message, file=sys.stderr)
+    raise SystemExit(1)
+
+
+_ensure_qt_is_installed()
+
 from app.ui.app import main
 
 
