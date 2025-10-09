@@ -5,6 +5,29 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REQ_FILE="$ROOT_DIR/requirements.txt"
 
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+
+if [[ "$OS_NAME" != "Darwin" ]]; then
+  echo "❌ Unsupported operating system: $OS_NAME. This launcher currently targets macOS." >&2
+  exit 1
+fi
+
+case "$ARCH_NAME" in
+  x86_64)
+    MAC_ARCH_LABEL="Intel"
+    ;;
+  arm64)
+    MAC_ARCH_LABEL="Apple Silicon"
+    ;;
+  *)
+    echo "❌ Unsupported macOS architecture: $ARCH_NAME. Only Intel and Apple Silicon are supported." >&2
+    exit 1
+    ;;
+esac
+
+echo "ℹ️  Detected macOS ($MAC_ARCH_LABEL)."
+
 if [[ -n "${PYTHON:-}" ]]; then
   PYTHON_BIN="$PYTHON"
 elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
@@ -17,6 +40,59 @@ else
   echo "Python interpreter not found. Please install Python 3.10+." >&2
   exit 1
 fi
+
+python_meta="$("$PYTHON_BIN" <<'PY'
+import os
+import sys
+
+def classify(path: str) -> str:
+    real = os.path.realpath(path)
+    if real.startswith((
+        "/System/",
+        "/usr/bin/",
+        "/Library/Developer/CommandLineTools/",
+    )):
+        return "macos_system"
+    if "/Library/Frameworks/Python.framework" in real:
+        return "python_org"
+    if any(marker in real for marker in (
+        "/opt/homebrew/",
+        "/usr/local/Cellar/",
+        "/usr/local/Homebrew/",
+        "/usr/local/opt/",
+    )):
+        return "homebrew"
+    return "unknown"
+
+base_prefix = os.path.realpath(getattr(sys, "base_prefix", sys.prefix))
+executable = os.path.realpath(sys.executable)
+
+print(classify(base_prefix))
+print(base_prefix)
+print(executable)
+PY
+)"
+
+IFS=$'\n' read -r PYTHON_KIND PYTHON_BASE_PATH PYTHON_REAL_EXE <<'EOF'
+$python_meta
+EOF
+
+export BWB_PYTHON_ORIGIN="$PYTHON_KIND"
+
+case "$PYTHON_KIND" in
+  macos_system)
+    echo "⚠️  Detected Apple's system Python at $PYTHON_REAL_EXE. Consider installing Python via python.org or Homebrew for full support." >&2
+    ;;
+  python_org)
+    echo "ℹ️  Using python.org framework at $PYTHON_BASE_PATH."
+    ;;
+  homebrew)
+    echo "ℹ️  Using Homebrew Python at $PYTHON_BASE_PATH."
+    ;;
+  *)
+    echo "ℹ️  Using Python interpreter at $PYTHON_REAL_EXE (origin unknown)."
+    ;;
+esac
 
 export BWB_REQ_FILE="$REQ_FILE"
 
