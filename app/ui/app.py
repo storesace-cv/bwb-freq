@@ -7,10 +7,11 @@ import sys
 from typing import Iterable, Sequence
 
 import PySide6
-from PySide6.QtCore import QCoreApplication, QLibraryInfo
+from PySide6.QtCore import QCoreApplication, QLibraryInfo, Qt
 from PySide6.QtWidgets import QApplication
 
 from app.ui.main_window import MainWindow
+from app.ui.splashscreen import SplashScreen
 
 
 def _dedupe_paths(paths: Iterable[str]) -> list[str]:
@@ -141,9 +142,33 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     _ensure_qt_plugin_path()
 
+    translucent_attr = getattr(
+        Qt.ApplicationAttribute, "AA_TranslucentBackground", None
+    )
+    if translucent_attr is None:
+        translucent_attr = getattr(Qt, "AA_TranslucentBackground", None)
+    if translucent_attr is not None:
+        QCoreApplication.setAttribute(translucent_attr, True)
     app = QApplication(list(argv) if argv is not None else sys.argv)
-    window = MainWindow()
-    window.show()
+    app.setStyleSheet(
+        "QMainWindow { background: transparent; }\n"
+        "QWidget { background: transparent; }"
+    )
+
+    splash = SplashScreen()
+    splash.show()
+
+    window: MainWindow | None = None
+
+    def _launch_main_window() -> None:
+        nonlocal window
+        if window is None:
+            splash.close()
+            window = MainWindow()
+            window.show()
+
+    splash.clicked.connect(_launch_main_window)
+
     return app.exec()
 
 
