@@ -1,18 +1,50 @@
 #!/usr/bin/env python3
-"""Launcher script for the requisitions Qt GUI."""
+"""Launcher script for the requisitions Qt GUI with automatic requirements check."""
 
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
+import pathlib
+
+
+def _ensure_requirements_installed() -> None:
+    """Ensure all requirements from requirements.txt are installed."""
+
+    root = pathlib.Path(__file__).resolve().parent
+    req_file = root / "requirements.txt"
+    if not req_file.exists():
+        return
+
+    # try to import pkg_resources to verify requirements
+    try:
+        import pkg_resources
+        with req_file.open("r", encoding="utf-8") as f:
+            requirements = [
+                line.strip()
+                for line in f
+                if line.strip() and not line.strip().startswith("#")
+            ]
+        try:
+            pkg_resources.require(requirements)
+            return  # all good
+        except Exception:
+            print("📦 Requirements missing or outdated — installing...", file=sys.stderr)
+    except Exception:
+        print("⚠️ Could not verify requirements — proceeding with install.", file=sys.stderr)
+
+    subprocess.run(
+        [sys.executable, "-m", "pip", "install", "--upgrade", "pip", "wheel", "setuptools"],
+        check=False,
+    )
+    subprocess.run([sys.executable, "-m", "pip", "install", "-r", str(req_file)], check=True)
 
 
 def _ensure_qt_is_installed() -> None:
     """Exit early with guidance if PySide6 is missing."""
-
     if importlib.util.find_spec("PySide6") is not None:
         return
-
     message = "\n".join(
         [
             "PySide6 is required to launch the requisitions GUI but was not found.",
@@ -25,10 +57,14 @@ def _ensure_qt_is_installed() -> None:
     raise SystemExit(1)
 
 
+# ---------------------------------------------------------------------
+# Main sequence
+# ---------------------------------------------------------------------
+
+_ensure_requirements_installed()
 _ensure_qt_is_installed()
 
 from app.ui.app import main
-
 
 if __name__ == "__main__":
     raise SystemExit(main())
