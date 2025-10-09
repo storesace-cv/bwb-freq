@@ -51,7 +51,7 @@ class MainWindow(QMainWindow):
         self.setFixedSize(1024, 768)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAttribute(Qt.WA_NoSystemBackground, True)
-        self.setAttribute(Qt.WA_NoBackground, True)
+        self.setAttribute(Qt.WA_StyledBackground, True)
         self.setAutoFillBackground(False)
         self.setStyleSheet("background: transparent;")
 
@@ -76,6 +76,7 @@ class MainWindow(QMainWindow):
         central = QWidget(self)
         central.setObjectName("central-widget")
         central.setAttribute(Qt.WA_TranslucentBackground, True)
+        central.setAttribute(Qt.WA_NoSystemBackground, True)
         central.setAttribute(Qt.WA_StyledBackground, True)
         central.setAutoFillBackground(False)
         central.setStyleSheet("background: transparent;")
