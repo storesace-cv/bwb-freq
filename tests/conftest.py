@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib
+import os
 import shutil
 import sys
 from pathlib import Path
@@ -39,10 +40,16 @@ def _write_excel(path: Path, data: list[dict]):
     df.to_excel(path, index=False)
 
 
-def _ensure_example(tmp_dir: Path, examples_dir: Path, filename: str, *, fallback: list[dict]):
+def _ensure_example(
+    tmp_dir: Path,
+    examples_dir: Path,
+    filename: str,
+    *,
+    fallback: list[dict],
+):
     src = examples_dir / filename
     dest = tmp_dir / filename
-    if src.exists():
+    if os.environ.get("USE_REAL_IMPORT_EXAMPLES") and src.exists():
         shutil.copy(src, dest)
     else:
         _write_excel(dest, fallback)
