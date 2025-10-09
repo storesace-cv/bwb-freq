@@ -1,155 +1,105 @@
 #!/usr/bin/env bash
-# Launcher for the requisitions GUI with automatic environment checks.
-set -euo pipefail
+# my-launcher.sh — automático e silencioso; só erros reais.
+set -Eeuo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REQ_FILE="$ROOT_DIR/requirements.txt"
+cd "$ROOT_DIR"
 
-OS_NAME="$(uname -s)"
-ARCH_NAME="$(uname -m)"
-
-if [[ "$OS_NAME" != "Darwin" ]]; then
-  echo "❌ Unsupported operating system: $OS_NAME. This launcher currently targets macOS." >&2
+# 0) Python do venv (obrigatório)
+if [[ ! -x ".venv/bin/python" ]]; then
+  echo "❌ Não encontrei .venv/bin/python. Cria e ativa o venv primeiro." >&2
+  echo "   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt" >&2
   exit 1
 fi
+PYBIN=".venv/bin/python"
 
-case "$ARCH_NAME" in
-  x86_64)
-    MAC_ARCH_LABEL="Intel"
-    ;;
-  arm64)
-    MAC_ARCH_LABEL="Apple Silicon"
-    ;;
-  *)
-    echo "❌ Unsupported macOS architecture: $ARCH_NAME. Only Intel and Apple Silicon are supported." >&2
-    exit 1
-    ;;
-esac
+# 1) Limpar ambiente Qt ruidoso
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH QT_DEBUG_PLUGINS
+export QT_QPA_PLATFORM="cocoa"
+export QT_LOGGING_RULES="qt.*=false"
+export QT_MAC_WANTS_LAYER=1
 
-echo "ℹ️  Detected macOS ($MAC_ARCH_LABEL)."
-
-if [[ -n "${PYTHON:-}" ]]; then
-  PYTHON_BIN="$PYTHON"
-elif [[ -x "$ROOT_DIR/.venv/bin/python" ]]; then
-  PYTHON_BIN="$ROOT_DIR/.venv/bin/python"
-elif command -v python3 >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python3)"
-elif command -v python >/dev/null 2>&1; then
-  PYTHON_BIN="$(command -v python)"
+# 2) Garantir PySide6 (instala 6.7.3 se faltar; define BWB_FORCE_PYSIDE6_673=1 para forçar)
+if [[ "${BWB_FORCE_PYSIDE6_673:-0}" == "1" ]]; then
+  "$PYBIN" -m pip install -q "PySide6==6.7.3"
 else
-  echo "Python interpreter not found. Please install Python 3.10+." >&2
-  exit 1
+  if ! "$PYBIN" - >/dev/null 2>&1 <<'PY'
+import importlib.util, sys
+sys.exit(0 if importlib.util.find_spec("PySide6") else 1)
+PY
+  then
+    "$PYBIN" -m pip install -q "PySide6==6.7.3"
+  fi
 fi
 
-python_meta="$("$PYTHON_BIN" <<'PY'
-import os
-import sys
-
-def classify(path: str) -> str:
-    real = os.path.realpath(path)
-    if real.startswith((
-        "/System/",
-        "/usr/bin/",
-        "/Library/Developer/CommandLineTools/",
-    )):
-        return "macos_system"
-    if "/Library/Frameworks/Python.framework" in real:
-        return "python_org"
-    if any(marker in real for marker in (
-        "/opt/homebrew/",
-        "/usr/local/Cellar/",
-        "/usr/local/Homebrew/",
-        "/usr/local/opt/",
-    )):
-        return "homebrew"
-    return "unknown"
-
-base_prefix = os.path.realpath(getattr(sys, "base_prefix", sys.prefix))
-executable = os.path.realpath(sys.executable)
-
-print(classify(base_prefix))
-print(base_prefix)
-print(executable)
+# 3) Descobrir paths de plugins via Qt (robusto)
+QT_INFO="$("$PYBIN" <<'PY'
+import pathlib
+import PySide6
+from PySide6.QtCore import QLibraryInfo
+base = pathlib.Path(PySide6.__file__).resolve().parent
+plugins_root = pathlib.Path(QLibraryInfo.path(QLibraryInfo.PluginsPath))
+if not plugins_root.exists():
+    plugins_root = base/"Qt"/"plugins"
+platforms = plugins_root/"platforms"
+print(plugins_root)
+print(platforms)
+print(base)
 PY
 )"
+QT_PLUGINS_ROOT="$(echo "$QT_INFO" | sed -n '1p')"
+QT_PLATFORMS_DIR="$(echo "$QT_INFO" | sed -n '2p')"
+PYSIDE_DIR="$(echo "$QT_INFO" | sed -n '3p')"
 
-IFS=$'\n' read -r PYTHON_KIND PYTHON_BASE_PATH PYTHON_REAL_EXE <<'EOF'
-$python_meta
-EOF
-
-export BWB_PYTHON_ORIGIN="$PYTHON_KIND"
-
-case "$PYTHON_KIND" in
-  macos_system)
-    echo "⚠️  Detected Apple's system Python at $PYTHON_REAL_EXE. Consider installing Python via python.org or Homebrew for full support." >&2
-    ;;
-  python_org)
-    echo "ℹ️  Using python.org framework at $PYTHON_BASE_PATH."
-    ;;
-  homebrew)
-    echo "ℹ️  Using Homebrew Python at $PYTHON_BASE_PATH."
-    ;;
-  *)
-    echo "ℹ️  Using Python interpreter at $PYTHON_REAL_EXE (origin unknown)."
-    ;;
-esac
-
-export BWB_REQ_FILE="$REQ_FILE"
-
-"$PYTHON_BIN" <<'PY'
-"""Ensure runtime requirements are installed before launching the UI."""
-from __future__ import annotations
-
-import os
-import pathlib
-import subprocess
-import sys
-
-req_file = pathlib.Path(os.environ["BWB_REQ_FILE"])
-
-if not req_file.exists():
-    sys.exit(0)
-
-needs_install = False
-requirements: list[str] = []
-
-try:
-    import pkg_resources  # type: ignore
-except ModuleNotFoundError:
-    needs_install = True
-else:
-    with req_file.open("r", encoding="utf-8") as handle:
-        for raw in handle:
-            line = raw.strip()
-            if not line or line.startswith("#"):
-                continue
-            requirements.append(line)
-
-    try:
-        pkg_resources.require(requirements)
-    except (pkg_resources.DistributionNotFound, pkg_resources.VersionConflict):
-        needs_install = True
-    except Exception as exc:  # pragma: no cover - defensive logging
-        print(
-            f"⚠️  Could not validate requirements ({exc!s}); reinstalling...",
-            file=sys.stderr,
-        )
-        needs_install = True
-
-if needs_install:
-    print("📦 Installing Python dependencies...", file=sys.stderr)
-    subprocess.run(
-        [sys.executable, "-m", "pip", "install", "-r", str(req_file)],
-        check=True,
-    )
-PY
-
-unset BWB_REQ_FILE
-
-if [[ ! -d "$ROOT_DIR/app/ui" ]]; then
-  echo "UI module not found at app/ui. Aborting." >&2
+if [[ -z "$QT_PLUGINS_ROOT" || -z "$QT_PLATFORMS_DIR" || ! -d "$QT_PLATFORMS_DIR" ]]; then
+  echo "❌ PySide6 encontrado, mas diretório de plugins inválido: '$QT_PLUGINS_ROOT' / '$QT_PLATFORMS_DIR'." >&2
   exit 1
 fi
 
-echo "🚀 Launching requisitions UI..."
-exec "$PYTHON_BIN" -m app.ui "$@"
+# 4) Remover quarentena (best-effort; silencioso)
+xattr -r -d com.apple.quarantine "$PYSIDE_DIR" >/dev/null 2>&1 || true
+
+# 5) Exportar paths corretos
+export QT_PLUGIN_PATH="$QT_PLUGINS_ROOT"
+export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLATFORMS_DIR"
+
+# 6) Smoke test (como tu fizeste manualmente)
+if ! "$PYBIN" - >/dev/null 2>&1 <<'PY'
+import os, pathlib
+import PySide6
+base = pathlib.Path(PySide6.__file__).parent
+plugins = base/'Qt'/'plugins'
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(plugins/'platforms')
+os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+PY
+then
+  # Retry com debug para log (sem sujar o ecrã)
+  LOGFILE="$ROOT_DIR/launch_debug.log"
+  QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES= "$PYBIN" - >"$LOGFILE" 2>&1 <<'PY' || true
+import os, pathlib
+import PySide6
+base = pathlib.Path(PySide6.__file__).parent
+plugins = base/'Qt'/'plugins'
+os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(plugins/'platforms')
+os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+from PySide6.QtWidgets import QApplication
+app = QApplication([])
+PY
+  echo "❌ Falha no smoke test do Qt. Vê detalhes em launch_debug.log" >&2
+  exit 1
+fi
+
+# 7) Arrancar a app com library paths Qt corretos
+exec "$PYBIN" - <<'PY'
+import pathlib
+import PySide6
+from PySide6.QtCore import QLibraryInfo, QCoreApplication
+plugins_root = pathlib.Path(QLibraryInfo.path(QLibraryInfo.PluginsPath))
+if not plugins_root.exists():
+    plugins_root = pathlib.Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
+QCoreApplication.setLibraryPaths([str(plugins_root)])
+from app.ui.app import main as app_main
+raise SystemExit(int(app_main() or 0))
+PY
