@@ -14,10 +14,39 @@ fi
 PYBIN=".venv/bin/python"
 
 # 1) Limpar ambiente Qt ruidoso
-unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH QT_DEBUG_PLUGINS
-export QT_QPA_PLATFORM="cocoa"
-export QT_LOGGING_RULES="qt.*=false"
-export QT_MAC_WANTS_LAYER=1
+unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH QT_DEBUG_PLUGINS QT_MAC_WANTS_LAYER
+
+QT_PLATFORM_DEFAULT=""
+UNAME_OUTPUT="$(uname -s 2>/dev/null || echo unknown)"
+case "$UNAME_OUTPUT" in
+  Darwin)
+    QT_PLATFORM_DEFAULT="cocoa"
+    export QT_MAC_WANTS_LAYER=1
+    ;;
+  Linux)
+    QT_PLATFORM_DEFAULT="xcb"
+    unset QT_MAC_WANTS_LAYER
+    ;;
+  MINGW*|MSYS*|CYGWIN*)
+    QT_PLATFORM_DEFAULT="windows"
+    unset QT_MAC_WANTS_LAYER
+    ;;
+  *)
+    unset QT_MAC_WANTS_LAYER
+    ;;
+esac
+
+if [[ -z "${QT_QPA_PLATFORM:-}" && -n "$QT_PLATFORM_DEFAULT" ]]; then
+  export QT_QPA_PLATFORM="$QT_PLATFORM_DEFAULT"
+fi
+
+if [[ -z "${QT_LOGGING_RULES:-}" ]]; then
+  export QT_LOGGING_RULES="qt.*=false"
+fi
+
+if [[ -n "$QT_PLATFORM_DEFAULT" ]]; then
+  export BWB_QT_PLATFORM_DEFAULT="$QT_PLATFORM_DEFAULT"
+fi
 
 # 2) Garantir PySide6 (instala 6.7.3 se faltar; define BWB_FORCE_PYSIDE6_673=1 para forçar)
 if [[ "${BWB_FORCE_PYSIDE6_673:-0}" == "1" ]]; then
@@ -57,7 +86,11 @@ if [[ -z "$QT_PLUGINS_ROOT" || -z "$QT_PLATFORMS_DIR" || ! -d "$QT_PLATFORMS_DIR
 fi
 
 # 4) Remover quarentena (best-effort; silencioso)
-xattr -r -d com.apple.quarantine "$PYSIDE_DIR" >/dev/null 2>&1 || true
+if [[ "$UNAME_OUTPUT" == "Darwin" && -n "$PYSIDE_DIR" ]]; then
+  if command -v xattr >/dev/null 2>&1; then
+    xattr -r -d com.apple.quarantine "$PYSIDE_DIR" >/dev/null 2>&1 || true
+  fi
+fi
 
 # 5) Exportar paths corretos
 export QT_PLUGIN_PATH="$QT_PLUGINS_ROOT"
@@ -68,9 +101,14 @@ if ! "$PYBIN" - >/dev/null 2>&1 <<'PY'
 import os, pathlib
 import PySide6
 base = pathlib.Path(PySide6.__file__).parent
-plugins = base/'Qt'/'plugins'
-os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(plugins/'platforms')
-os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+plugins = base / 'Qt' / 'plugins'
+platforms_dir = plugins / 'platforms'
+if platforms_dir.is_dir():
+    os.environ.setdefault('QT_QPA_PLATFORM_PLUGIN_PATH', str(platforms_dir))
+if 'QT_QPA_PLATFORM' not in os.environ:
+    default = os.environ.get('BWB_QT_PLATFORM_DEFAULT')
+    if default:
+        os.environ['QT_QPA_PLATFORM'] = default
 from PySide6.QtWidgets import QApplication
 app = QApplication([])
 PY
@@ -81,9 +119,14 @@ then
 import os, pathlib
 import PySide6
 base = pathlib.Path(PySide6.__file__).parent
-plugins = base/'Qt'/'plugins'
-os.environ['QT_QPA_PLATFORM_PLUGIN_PATH'] = str(plugins/'platforms')
-os.environ['QT_QPA_PLATFORM'] = 'cocoa'
+plugins = base / 'Qt' / 'plugins'
+platforms_dir = plugins / 'platforms'
+if platforms_dir.is_dir():
+    os.environ.setdefault('QT_QPA_PLATFORM_PLUGIN_PATH', str(platforms_dir))
+if 'QT_QPA_PLATFORM' not in os.environ:
+    default = os.environ.get('BWB_QT_PLATFORM_DEFAULT')
+    if default:
+        os.environ['QT_QPA_PLATFORM'] = default
 from PySide6.QtWidgets import QApplication
 app = QApplication([])
 PY
