@@ -9,9 +9,9 @@ Cada requisição lista os **artigos ativos no armazém**, incluindo **Código**
 
 ## Principais requisitos
 - **Importação** inicial a partir de ficheiros Excel:
-  - `netbo_articles.xlsx` → tabela `NetboArticles` (Tipo 1 / imutável por UI)
-  - `Lojas e Armazéns.xlsx` → tabela `Wharehouses` (Tipo 1 / imutável por UI)
-  - `article_barcodes.xlsx` → tabela `ArticleBarcodes` (Tipo 1 / imutável por UI)
+- `netbo_articles.xlsx` → tabela `NetboArticles` (Tipo 1 / imutável por UI)
+- `Lojas e Armazens.xlsx` → tabela `Wharehouses` (Tipo 1 / imutável por UI)
+- `article_barcodes.xlsx` → tabela `ArticleBarcodes` (Tipo 1 / imutável por UI)
 - **Regras de edição**:
   - Tabelas **Tipo 1** (de origem externa) **não podem ser alteradas** pelos utilizadores; só por **reimportação**.
   - Tabelas **Tipo 2** (criadas por nós) comportam-se “normalmente” (CRUD).
@@ -42,7 +42,7 @@ requisicoes-internas/
 │  └─ examples/                 # Exemplos canónicos dos cabeçalhos
 ├─ docs/                        # Todos estes .md
 ├─ tests/
-│  └─ datasets/                 # Fixtures de Excel & DB
+│  └─ (tests Python)           # Suites pytest
 ├─ .env.example
 ├─ requirements.txt
 └─ pyproject.toml
@@ -82,7 +82,7 @@ requisicoes-internas/
 │  ├─ incoming/
 │  └─ processed/
 ├─ tests/
-│  └─ datasets/
+│  └─
 ├─ AGENTS.md
 ├─ .env.example
 ├─ README.md
@@ -105,7 +105,7 @@ pip install -r requirements.txt
 export DB_PATH=./databases/requisicoes.db
 
 # 4) Importar ficheiros
-python -m app.cli import   --articles imports/incoming/netbo_articles.xlsx   --warehouses "imports/incoming/Lojas e Armazéns.xlsx"   --barcodes imports/incoming/article_barcodes.xlsx
+python -m app.cli import   --articles imports/incoming/netbo_articles.xlsx   --warehouses "imports/incoming/Lojas e Armazens.xlsx"   --barcodes imports/incoming/article_barcodes.xlsx
 
 # 5) Validar integridade
 python -m app.cli validate
@@ -114,6 +114,12 @@ python -m app.cli validate
 python -m app.cli print --warehouse 10001 --out out/
 python -m app.cli print --all --out out/
 ```
+
+### Testes automatizados
+```bash
+pytest -q
+```
+Os datasets de teste são gerados dinamicamente a partir dos exemplos em `imports/examples/` (ou, na ausência destes, através de dados sintéticos mínimos) e cobrem o fluxo completo de importação, geração de `WarehouseArticles` e exportação do contexto para ReportBro.
 
 ### GUI (pré-visualização MVP)
 ```bash

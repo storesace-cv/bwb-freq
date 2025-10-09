@@ -29,3 +29,5 @@ black -l 88 .
 flake8
 pytest -q
 ```
+
+- Exemplos de Excel: `imports/examples/` (os testes copiam ou sintetizam dados a partir daqui).

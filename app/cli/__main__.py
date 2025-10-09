@@ -54,7 +54,7 @@ def main(argv=None):
 
     p_imp = sub.add_parser("import", help="Importar Excel para SQLite")
     p_imp.add_argument("--articles", help="caminho para netbo_articles.xlsx")
-    p_imp.add_argument("--warehouses", help="caminho para Lojas e Armazéns.xlsx")
+    p_imp.add_argument("--warehouses", help="caminho para Lojas e Armazens.xlsx")
     p_imp.add_argument("--barcodes", help="caminho para article_barcodes.xlsx")
     p_imp.set_defaults(func=cmd_import)
 

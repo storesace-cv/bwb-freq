@@ -36,7 +36,7 @@ Tipo de Produto (SAF-T - P,S,O,I,E) → TipoDeProdutoSaftPsoie
 
 ---
 
-## `Lojas e Armazéns.xlsx` → `Wharehouses`
+## `Lojas e Armazens.xlsx` → `Wharehouses`
 ```
 *obs (extraído de Nome) → Codigo
 Tipo → Tipo

@@ -3,9 +3,9 @@
 ## Fase 1 — MVP (Excel → PDFs) — Target: 2025-10-09
 - [x] DDL inicial (`DATA_MODEL.md`)
 - [x] CLI: `import`, `validate`, `print`
-- [ ] Templates ReportBro básicos
-- [ ] Testes com fixtures
-- [ ] Documentação completa
+- [x] Templates ReportBro básicos
+- [x] Testes com fixtures
+- [x] Documentação completa
 
 ## Fase 2 — GUI leve
 - [ ] PyQt/PySide: seleção de armazém, filtros, impressão em lote
