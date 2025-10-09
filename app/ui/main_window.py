@@ -47,6 +47,7 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
+        self.setFixedSize(1024, 768)
         self.setAttribute(Qt.WA_TranslucentBackground, True)
         self.setAutoFillBackground(False)
         init_db()
@@ -58,6 +59,7 @@ class MainWindow(QMainWindow):
 
         central = QWidget(self)
         central.setObjectName("central-widget")
+        central.setAttribute(Qt.WA_TranslucentBackground, True)
         central.setAttribute(Qt.WA_StyledBackground, True)
         central.setAutoFillBackground(False)
         layout = QVBoxLayout(central)
@@ -135,8 +137,9 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
         self.setStyleSheet(
-            "QMainWindow { background-color: transparent; }\n"
-            "#central-widget { background-color: transparent; }"
+            "QMainWindow { background: transparent; }\n"
+            "#central-widget { background: transparent; }\n"
+            "QStatusBar { background: transparent; }"
         )
 
         self.refresh_warehouses()
