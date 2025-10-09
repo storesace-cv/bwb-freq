@@ -1,0 +1,14 @@
+Explicação dos MD's:
+
+	•	README.md – visão geral, estrutura do repo, quickstart e comandos CLI.
+	•	DATA_MODEL.md – esquema da BD (Tipo 1 vs Tipo 2), DDL e relações (inclui WarehouseArticles para normalizar DispLojas).
+	•	IMPORT_SPEC.md – regras de import, extração do Wharehouses.Codigo via regex do campo “Nome (#Código)”, validações e upsert.
+	•	MAPPINGS.md – mapeamentos Excel → SQLite em PascalCase exatamente como definiste.
+	•	PRINT_SPEC.md – regras de impressão por armazém, política de escolha de código de barras (ArticleBarcodes > CodBarras) e tipos (EAN13/Code128).
+	•	AGENTS.md – agentes Codex propostos (Import, Validation, BarcodeResolver, Print, Migrations, UI).
+	•	ARCHITECTURE.md – camadas e fluxos (CLI/Services/Data/Reporting).
+	•	DEV_GUIDE.md – setup de dev, linters, estrutura de serviços e templates.
+	•	TEST_PLAN.md – fixtures mínimos e casos de teste essenciais.
+	•	ROADMAP.md – fases (MVP Excel → GUI → API NET-BO).
+	•	NOMENCLATURES.md – convenções (PascalCase, Tipo 1/2, termos).
+	•	.env.example – variáveis base.

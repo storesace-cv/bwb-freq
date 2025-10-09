@@ -1,0 +1,96 @@
+{
+  "name": "Requisição por Armazém (Base)",
+  "docElements": [
+    {
+      "elementType": "text",
+      "id": 1,
+      "x": 20,
+      "y": 20,
+      "width": 300,
+      "height": 16,
+      "content": "Requisição — ${warehouse.Nome} (${warehouse.Codigo})",
+      "font": "helvetica",
+      "fontSize": 12
+    },
+    {
+      "elementType": "text",
+      "id": 2,
+      "x": 20,
+      "y": 40,
+      "width": 200,
+      "height": 12,
+      "content": "Data: ${formatDate(now(), 'YYYY-MM-DD HH:mm')}",
+      "font": "helvetica",
+      "fontSize": 9
+    },
+    {
+      "elementType": "band",
+      "id": 10,
+      "x": 20,
+      "y": 70,
+      "width": 555,
+      "height": 14,
+      "key": "artigos",
+      "children": [
+        {
+          "elementType": "text",
+          "id": 11,
+          "x": 0,
+          "y": 0,
+          "width": 70,
+          "height": 12,
+          "content": "${Codigo}",
+          "font": "helvetica",
+          "fontSize": 9
+        },
+        {
+          "elementType": "text",
+          "id": 12,
+          "x": 75,
+          "y": 0,
+          "width": 250,
+          "height": 12,
+          "content": "${Produto}",
+          "font": "helvetica",
+          "fontSize": 9
+        },
+        {
+          "elementType": "text",
+          "id": 13,
+          "x": 330,
+          "y": 0,
+          "width": 40,
+          "height": 12,
+          "content": "${Unidade}",
+          "font": "helvetica",
+          "fontSize": 9
+        },
+        {
+          "elementType": "text",
+          "id": 14,
+          "x": 375,
+          "y": 0,
+          "width": 40,
+          "height": 12,
+          "content": "${Quantidade}",
+          "font": "helvetica",
+          "fontSize": 9
+        },
+        {
+          "elementType": "barcode",
+          "id": 15,
+          "x": 420,
+          "y": -4,
+          "width": 150,
+          "height": 20,
+          "content": "${barcode_value}",
+          "barcodeType": "${barcode_type || 'Code128'}"
+        }
+      ]
+    }
+  ],
+  "pageWidth": 595,
+  "pageHeight": 842,
+  "unit": "pt",
+  "version": 1
+}
