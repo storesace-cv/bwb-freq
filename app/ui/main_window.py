@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from typing import Dict, Iterable, List
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
@@ -142,6 +143,15 @@ class MainWindow(QMainWindow):
         ensure_transparent(self.statusBar())
 
         self.refresh_warehouses()
+
+        self._background_label.resize(self.size())
+
+    # ------------------------------------------------------------------
+    # Qt event handlers
+    # ------------------------------------------------------------------
+    def resizeEvent(self, event) -> None:  # type: ignore[override]
+        super().resizeEvent(event)
+        self._background_label.resize(self.size())
 
     # ------------------------------------------------------------------
     # Data helpers

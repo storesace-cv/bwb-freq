@@ -43,6 +43,7 @@ class SplashScreen(QDialog):
             # Fallback size when the image fails to load.
             self.setFixedSize(800, 500)
 
+        self._background_label.resize(self.size())
         self._label.resize(self.size())
         self._label.raise_()
 
@@ -51,6 +52,7 @@ class SplashScreen(QDialog):
     # ------------------------------------------------------------------
     def resizeEvent(self, event) -> None:  # type: ignore[override]
         super().resizeEvent(event)
+        self._background_label.resize(self.size())
         self._label.resize(self.size())
 
     def mousePressEvent(self, event) -> None:  # type: ignore[override]
