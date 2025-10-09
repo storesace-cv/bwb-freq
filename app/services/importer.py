@@ -44,7 +44,11 @@ def import_netbo_articles(xlsx_path: str) -> int:
                 continue
             conn.execute(f"INSERT OR REPLACE INTO NetboArticles ({','.join(cols)}) VALUES ({placeholders})", dict(r))
             n += 1
-        conn.execute("INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) VALUES(datetime('now'), ?, 'articles', ?, NULL)", (xlsx_path, n))
+        conn.execute(
+            'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
+            "VALUES(datetime('now'), ?, ?, ?, NULL)",
+            (xlsx_path, "articles", n),
+        )
         conn.commit()
         return n
 
@@ -68,7 +72,11 @@ def import_wharehouses(xlsx_path: str) -> int:
                 raise ValueError(f"Não foi possível extrair Codigo de Nome='{r.get('Nome','')}'")
             conn.execute(f"INSERT OR REPLACE INTO Wharehouses ({','.join(cols)}) VALUES ({placeholders})", {c:r.get(c,"") for c in cols})
             n += 1
-        conn.execute("INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) VALUES(datetime('now'), ?, 'warehouses', ?, NULL)", (xlsx_path, n))
+        conn.execute(
+            'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
+            "VALUES(datetime('now'), ?, ?, ?, NULL)",
+            (xlsx_path, "warehouses", n),
+        )
         conn.commit()
         return n
 
@@ -88,7 +96,11 @@ def import_article_barcodes(xlsx_path: str) -> int:
         for _, r in df.iterrows():
             conn.execute(f"INSERT INTO ArticleBarcodes ({','.join(cols)}) VALUES ({placeholders})", dict(r))
             n += 1
-        conn.execute("INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) VALUES(datetime('now'), ?, 'barcodes', ?, NULL)", (xlsx_path, n))
+        conn.execute(
+            'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
+            "VALUES(datetime('now'), ?, ?, ?, NULL)",
+            (xlsx_path, "barcodes", n),
+        )
         conn.commit()
         return n
 
