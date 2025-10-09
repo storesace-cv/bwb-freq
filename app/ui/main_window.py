@@ -4,16 +4,21 @@ from pathlib import Path
 
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.data.db import init_db
+from app.data.db import get_connection, init_db
 from app.ui.assets import BACKGROUND_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
 from app.services.importer import (
@@ -101,7 +106,37 @@ class MainWindow(QMainWindow):
         top_row.addSpacing(100)
 
         layout.addLayout(top_row)
-        layout.addStretch(1)
+
+        self.workspace = QWidget(self)
+        ensure_transparent(self.workspace)
+        self.workspace_layout = QVBoxLayout(self.workspace)
+        self.workspace_layout.setContentsMargins(32, 24, 32, 32)
+        self.workspace_layout.setSpacing(16)
+
+        self.workspace_hint_default_text = (
+            "Selecione uma tabela em Tabelas para visualizar os dados."
+        )
+        self.workspace_hint = QLabel(
+            self.workspace_hint_default_text,
+            self.workspace,
+        )
+        self.workspace_hint.setAlignment(Qt.AlignCenter)
+        self.workspace_hint.setStyleSheet("color: #202020; font-size: 16px;")
+        self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
+
+        self.table_widget = QTableWidget(self.workspace)
+        self.table_widget.setVisible(False)
+        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table_widget.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.setWordWrap(False)
+        self.table_widget.setTextElideMode(Qt.ElideRight)
+        self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.horizontalHeader().setStretchLastSection(False)
+        self.workspace_layout.addWidget(self.table_widget)
+
+        layout.addWidget(self.workspace, stretch=1)
 
         self.setCentralWidget(central)
 
@@ -128,7 +163,12 @@ class MainWindow(QMainWindow):
 
         tabelas_menu = menu.addMenu("Tabelas")
         self._apply_menu_styling(tabelas_menu)
-        tabelas_menu.addAction("Tipos Artigos")
+        artigos_action = tabelas_menu.addAction("Artigos")
+        artigos_action.triggered.connect(self._show_netbo_articles)
+        departamentos_action = tabelas_menu.addAction("Departamentos")
+        departamentos_action.triggered.connect(self._show_wharehouses)
+        barcodes_action = tabelas_menu.addAction("Artigos | Códigos de Barras")
+        barcodes_action.triggered.connect(self._show_article_barcodes)
 
         utilitarios_menu = menu.addMenu("Utilitários")
         self._apply_menu_styling(utilitarios_menu)
@@ -156,6 +196,138 @@ class MainWindow(QMainWindow):
         """Apply the shared stylesheet for beige semi-transparent menus."""
 
         menu.setStyleSheet(MENU_STYLESHEET)
+
+    def _show_netbo_articles(self) -> None:
+        """Display NetboArticles table with custom column sizing."""
+
+        columns = (
+            "Codigo",
+            "Produto",
+            "Familia",
+            "SubFamilia",
+            "Unidade",
+            "UnVenda",
+            "UnInventario",
+            "UnProducao",
+        )
+        query = (
+            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
+            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="netbo")
+
+    def _show_wharehouses(self) -> None:
+        """Display Wharehouses table with auto-sized columns."""
+
+        columns = (
+            "Codigo",
+            "Tipo",
+            "Nome",
+            "Nif",
+            "TipoFo",
+            "EmailDoResponsavel",
+        )
+        query = (
+            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="wharehouses")
+
+    def _show_article_barcodes(self) -> None:
+        """Display ArticleBarcodes table with auto-sized columns."""
+
+        columns = (
+            "ArticleFoId",
+            "ArticleName",
+            "Barcode",
+            "UnidadeName",
+            "BrandNames",
+            "StoreNames",
+        )
+        query = (
+            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName, "
+            "BrandNames, StoreNames FROM ArticleBarcodes"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="barcodes")
+
+    def _fetch_rows(self, query: str) -> list:
+        with get_connection() as conn:
+            return conn.execute(query).fetchall()
+
+    def _populate_table(self, columns: tuple[str, ...], rows: list, *, table_kind: str) -> None:
+        self.table_widget.clear()
+        self.table_widget.setColumnCount(len(columns))
+        self.table_widget.setHorizontalHeaderLabels(columns)
+        self.table_widget.setRowCount(len(rows))
+
+        for row_index, row in enumerate(rows):
+            for col_index, column in enumerate(columns):
+                value = row[column] if isinstance(row, dict) or hasattr(row, "keys") else row[col_index]
+                text = "" if value is None else str(value)
+                item = QTableWidgetItem()
+                display_text = text
+
+                if column in {"Familia", "SubFamilia"}:
+                    truncated, tooltip = self._truncate_with_tooltip(text, 20)
+                    display_text = truncated
+                    if tooltip:
+                        item.setToolTip(tooltip)
+                elif column == "Produto":
+                    if text:
+                        item.setToolTip(text)
+                else:
+                    if text and column in {"ArticleName", "Barcode", "UnidadeName", "BrandNames", "StoreNames"}:
+                        item.setToolTip(text)
+
+                item.setText(display_text)
+                self.table_widget.setItem(row_index, col_index, item)
+
+        if not rows:
+            self.table_widget.setRowCount(0)
+
+        self._configure_header(columns, table_kind)
+        self.table_widget.setVisible(True)
+        if rows:
+            self.workspace_hint.setVisible(False)
+            self.workspace_hint.setText(self.workspace_hint_default_text)
+        else:
+            self.workspace_hint.setText("Não existem registos para mostrar.")
+            self.workspace_hint.setVisible(True)
+
+    def _configure_header(self, columns: tuple[str, ...], table_kind: str) -> None:
+        header = self.table_widget.horizontalHeader()
+        header.setStretchLastSection(False)
+
+        if table_kind == "netbo":
+            product_index = columns.index("Produto")
+            familia_index = columns.index("Familia")
+            subfamilia_index = columns.index("SubFamilia")
+
+            char_width = self.table_widget.fontMetrics().horizontalAdvance("W")
+            familia_width = char_width * 20 + 16
+
+            for index, column in enumerate(columns):
+                if index == product_index:
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                elif index in {familia_index, subfamilia_index}:
+                    header.setSectionResizeMode(index, QHeaderView.Fixed)
+                    header.resizeSection(index, familia_width)
+                else:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        else:
+            for index, _ in enumerate(columns):
+                header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+            header.setStretchLastSection(True)
+
+    def _truncate_with_tooltip(self, text: str, limit: int) -> tuple[str, str | None]:
+        if not text:
+            return "", None
+        if len(text) <= limit:
+            return text, None
+        truncated = text[:limit].rstrip()
+        return f"{truncated}…", text
 
     def _import_incoming_excels(self) -> None:
         """Import Excel files from ``imports/incoming`` and archive them."""
