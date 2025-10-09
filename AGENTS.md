@@ -2,7 +2,7 @@
 
 ## Import Agent
 - **Tarefa:** ler Excel, aplicar mapeamentos e carregar tabelas Tipo 1.
-- **Entradas:** `netbo_articles.xlsx`, `Lojas e Armazéns.xlsx`, `article_barcodes.xlsx`.
+- **Entradas:** `netbo_articles.xlsx`, `Lojas e Armazens.xlsx`, `article_barcodes.xlsx`.
 - **Ações:** validações, upsert, preenchimento de `WarehouseArticles`, registo em `ImportsLog`.
 
 ## Validation Agent

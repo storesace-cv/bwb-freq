@@ -6,6 +6,7 @@ Gerar **um documento por armazém** (ou um pack para todos), listando apenas **a
 ## Dados necessários
 - `Warehouse` (by `Codigo`)
 - `Articles` = `NetboArticles` filtrados via `WarehouseArticles`
+- `total_artigos` = contagem de linhas após filtros
 - Para cada artigo:
   - `Codigo`, `Produto`, `Unidade`
   - **`Barcode`** resolvido por política
@@ -20,9 +21,9 @@ Gerar **um documento por armazém** (ou um pack para todos), listando apenas **a
 4. Se não houver código, deixar em branco e sinalizar no rodapé `"Artigos sem código de barras: N"`.
 
 ## Layout (sugestão ReportBro)
-- **Cabeçalho**: Nome do Armazém/Loja (e `Codigo`), data, página.
-- **Tabela**: Colunas `Codigo | Produto | Unidade | Quantidade | Código de Barras`.
-- **Rodapé**: total de linhas, alerta de artigos sem barras.
+- **Cabeçalho**: Nome do Armazém/Loja (e `Codigo`), data, página (`pageNumber()/pageCount()`).
+- **Tabela**: Colunas `Codigo | Produto | Unidade | Quantidade | Código de Barras` com banda `artigos`.
+- **Rodapé**: total de linhas (`total_artigos`), alerta de artigos sem barras (`sem_barcode`).
 - **Barcode**: elemento ReportBro com binding ao campo `barcode_value` e `barcode_type`.
 
 ### Contexto de dados (exemplo)
@@ -39,7 +40,8 @@ Gerar **um documento por armazém** (ou um pack para todos), listando apenas **a
       "barcode_type": "EAN13"
     }
   ],
-  "sem_barcode": 2
+  "total_artigos": 1,
+  "sem_barcode": 0
 }
 ```
 

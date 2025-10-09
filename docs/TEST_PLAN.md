@@ -2,7 +2,7 @@
 
 ## Dataset mínimo (fixtures)
 - `imports/examples/netbo_articles.xlsx` — 3 artigos (um com `DispLojas="10001, 10002"`).
-- `imports/examples/Lojas e Armazéns.xlsx` — 2 armazéns (`#10001`, `#10002`).
+- `imports/examples/Lojas e Armazens.xlsx` — 2 armazéns (`#10001`, `#10002`).
 - `imports/examples/article_barcodes.xlsx` — 2 códigos (um EAN13, um Code128).
 
 ## Casos

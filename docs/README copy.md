@@ -9,7 +9,7 @@ pip install -r requirements.txt
 export DB_PATH=./databases/requisicoes.db
 
 # Inicializar DB e importar
-python -m app.cli import   --articles "imports/incoming/netbo_articles.xlsx"   --warehouses "imports/incoming/Lojas e Armazéns.xlsx"   --barcodes "imports/incoming/article_barcodes.xlsx"
+python -m app.cli import   --articles "imports/incoming/netbo_articles.xlsx"   --warehouses "imports/incoming/Lojas e Armazens.xlsx"   --barcodes "imports/incoming/article_barcodes.xlsx"
 
 # Validar
 python -m app.cli validate

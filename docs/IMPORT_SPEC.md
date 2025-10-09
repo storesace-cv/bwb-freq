@@ -2,7 +2,7 @@
 
 ## Ficheiros de entrada
 - `netbo_articles.xlsx` → `NetboArticles`
-- `Lojas e Armazéns.xlsx` → `Wharehouses`
+- `Lojas e Armazens.xlsx` → `Wharehouses`
 - `article_barcodes.xlsx` → `ArticleBarcodes`
 
 > Todos os cabeçalhos são importados (mesmo que não usados). Nomes de colunas finais em **PascalCase** conforme os mapeamentos abaixo e em `MAPPINGS.md`.
@@ -24,7 +24,7 @@
 ### `netbo_articles.xlsx` → `NetboArticles`
 - Codigo, Produto, Familia, SubFamilia, CodBarras, AfetaStock, Menu, Venda, Mercadoria, Producao, Generico, Intermedio, Servico, Unidade, UnVenda, UnInventario, UnProducao, CodAuxiliar, CodAuxiliar2, Pcu, Pcm, Descontinuado, QtdNegativasNasCompras, ControlaNumerosDeSerie, DispLojas, PesoTransporte, Markup, TipoDeProdutoSaftPsoie
 
-### `Lojas e Armazéns.xlsx` → `Wharehouses`
+### `Lojas e Armazens.xlsx` → `Wharehouses`
 - **Codigo**: **extraído** do cabeçalho `Nome (#Código)` — regex: `\(#(?P<Codigo>[0-9]+)\)`  
   - Guardar `Nome` completo tal como vem no Excel.
 - Tipo → Tipo, NIF → Nif, Tipo FO → TipoFo, Teclado → Teclado, E-Mail do Responsável → EmailDoResponsavel

@@ -45,10 +45,12 @@ def _gather_for_warehouse(warehouse_codigo: str):
 
 def export_context_json(warehouse_codigo: str, out_path: str):
     wh, artigos = _gather_for_warehouse(warehouse_codigo)
+    total_artigos = len(artigos)
     ctx = {
         "warehouse": {"Codigo": wh["Codigo"], "Nome": wh["Nome"]},
         "artigos": artigos,
         "sem_barcode": sum(1 for a in artigos if not a["barcode_value"]),
+        "total_artigos": total_artigos,
     }
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     with open(out_path, "w", encoding="utf-8") as f:
