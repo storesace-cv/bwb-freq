@@ -115,6 +115,14 @@ python -m app.cli print --warehouse 10001 --out out/
 python -m app.cli print --all --out out/
 ```
 
+### GUI (pré-visualização MVP)
+```bash
+./start-freq
+# ou
+python -m app.ui
+```
+
+
 ---
 
 ## Documentação complementar (na pasta `docs/`)
