@@ -1,10 +1,13 @@
 """Main window for the requisitions UI."""
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QMainWindow,
     QMenu,
+    QMessageBox,
     QToolButton,
     QVBoxLayout,
     QWidget,
@@ -13,6 +16,12 @@ from PySide6.QtWidgets import (
 from app.data.db import init_db
 from app.ui.assets import BACKGROUND_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
+from app.services.importer import (
+    build_warehouse_articles_from_disp,
+    import_article_barcodes,
+    import_netbo_articles,
+    import_wharehouses,
+)
 
 
 MENU_STYLESHEET = """
@@ -80,9 +89,13 @@ class MainWindow(QMainWindow):
         self.menu_button.setPopupMode(QToolButton.InstantPopup)
         ensure_transparent(self.menu_button)
         size_hint = self.menu_button.sizeHint()
-        self.menu_button.setFixedSize(size_hint.width() * 2, size_hint.height() * 2)
+        scale_factor = 1.4  # 30% smaller than the previous doubled size
+        self.menu_button.setFixedSize(
+            int(size_hint.width() * scale_factor),
+            int(size_hint.height() * scale_factor),
+        )
         self.menu_button.setStyleSheet(
-            "QToolButton { font-size: 18px; padding: 8px 24px; border: none; }"
+            "QToolButton { font-size: 16px; padding: 6px 18px; border: none; }"
         )
         top_row.addWidget(self.menu_button)
         top_row.addSpacing(100)
@@ -106,7 +119,8 @@ class MainWindow(QMainWindow):
         base_de_dados_menu = menu.addMenu("Base de Dados")
         self._apply_menu_styling(base_de_dados_menu)
         base_de_dados_menu.addAction("Atualizar Dados")
-        base_de_dados_menu.addAction("Importar Dados")
+        importar_dados_action = base_de_dados_menu.addAction("Importar Dados")
+        importar_dados_action.triggered.connect(self._import_incoming_excels)
         seguranca_menu = base_de_dados_menu.addMenu("Segurança")
         self._apply_menu_styling(seguranca_menu)
         seguranca_menu.addAction("Segurança")
@@ -142,3 +156,70 @@ class MainWindow(QMainWindow):
         """Apply the shared stylesheet for beige semi-transparent menus."""
 
         menu.setStyleSheet(MENU_STYLESHEET)
+
+    def _import_incoming_excels(self) -> None:
+        """Import Excel files from ``imports/incoming`` and archive them."""
+
+        incoming_dir = Path("imports/incoming")
+        processed_dir = Path("imports/processed")
+        processed_dir.mkdir(parents=True, exist_ok=True)
+
+        tasks = (
+            ("netbo_articles.xlsx", import_netbo_articles, "NetboArticles"),
+            ("Lojas e Armazens.xlsx", import_wharehouses, "Wharehouses"),
+            ("article_barcodes.xlsx", import_article_barcodes, "ArticleBarcodes"),
+        )
+
+        imported = []
+        missing = []
+        errors = []
+
+        for file_name, importer, label in tasks:
+            src = incoming_dir / file_name
+            if not src.exists():
+                missing.append(file_name)
+                continue
+
+            try:
+                rows = importer(str(src))
+            except Exception as exc:  # pragma: no cover - user interaction
+                errors.append(f"{file_name}: {exc}")
+                continue
+
+            dest = processed_dir / file_name
+            if dest.exists():
+                dest.unlink()
+            src.replace(dest)
+            imported.append(f"{label}: {rows} linhas")
+
+        if imported:
+            try:
+                build_warehouse_articles_from_disp()
+            except Exception as exc:  # pragma: no cover - user interaction
+                errors.append(f"WarehouseArticles: {exc}")
+
+        if errors:
+            message = "Ocorreram erros ao importar:\n" + "\n".join(errors)
+            if imported:
+                message += "\n\nImportações concluídas:\n" + "\n".join(imported)
+            if missing:
+                message += "\n\nFicheiros em falta:\n" + "\n".join(missing)
+            QMessageBox.critical(self, "Importação com erros", message)
+            return
+
+        if not imported:
+            if missing:
+                message = (
+                    "Não foram encontrados ficheiros para importar.\n\n"
+                    "Esperados:\n" + "\n".join(missing)
+                )
+            else:
+                message = "Não existem ficheiros para importar em imports/incoming."
+            QMessageBox.information(self, "Sem dados", message)
+            return
+
+        message_lines = ["Importação concluída com sucesso:"] + imported
+        if missing:
+            message_lines.append("\nFicheiros em falta:")
+            message_lines.extend(missing)
+        QMessageBox.information(self, "Importação concluída", "\n".join(message_lines))
