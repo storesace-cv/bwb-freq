@@ -142,8 +142,11 @@ def run(argv: Sequence[str] | None = None) -> int:
 
     _ensure_qt_plugin_path()
 
+    QCoreApplication.setAttribute(
+        Qt.ApplicationAttribute.AA_TranslucentBackground,
+        True,
+    )
     app = QApplication(list(argv) if argv is not None else sys.argv)
-    app.setAttribute(Qt.AA_TranslucentBackground, True)
     app.setStyleSheet(
         "QMainWindow { background: transparent; }\n"
         "QWidget { background: transparent; }"
