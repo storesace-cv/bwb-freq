@@ -24,6 +24,10 @@ class SplashScreen(QDialog):
         self._background_layer = BackgroundLayer(
             self, BACKGROUND_IMAGE, "splash-background"
         )
+        # Keep a direct reference to the QLabel created by ``BackgroundLayer``
+        # so the rest of the widget can continue to work with the expected
+        # ``_background_label`` attribute used in resize handling.
+        self._background_label = self._background_layer.label
 
         pixmap = QPixmap(str(SPLASH_IMAGE))
         self._label = QLabel(self)
