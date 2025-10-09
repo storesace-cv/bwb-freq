@@ -1,18 +1,23 @@
-import csv, json
+import csv
+import json
 from pathlib import Path
-from app.data.db import get_connection
-from app.services.barcode_resolver import resolve_barcode
+from typing import Dict, List
 
-def _fetch_barcodes(conn):
-    rows = conn.execute("SELECT ArticleFoId, Barcode, StoreNames FROM ArticleBarcodes").fetchall()
-    return [dict(r) for r in rows]
+from app.data.db import get_connection
+from app.services.barcode_resolver import build_barcode_lookup, resolve_barcode
+
+def _load_barcode_lookup(conn) -> Dict[str, List[dict]]:
+    rows = conn.execute(
+        "SELECT ArticleFoId, Barcode, StoreNames FROM ArticleBarcodes"
+    ).fetchall()
+    return build_barcode_lookup(dict(r) for r in rows)
 
 def _gather_for_warehouse(warehouse_codigo: str):
     with get_connection() as conn:
         wh = conn.execute("SELECT * FROM Wharehouses WHERE Codigo = ?", (warehouse_codigo,)).fetchone()
         if not wh:
             raise ValueError(f"Warehouse '{warehouse_codigo}' não existe")
-        barcodes = _fetch_barcodes(conn)
+        barcodes = _load_barcode_lookup(conn)
         q = conn.execute("""
           SELECT a.Codigo, a.Produto, a.Unidade, a.CodBarras
           FROM WarehouseArticles wa
@@ -22,7 +27,12 @@ def _gather_for_warehouse(warehouse_codigo: str):
         """, (warehouse_codigo,))
         artigos = []
         for r in q:
-            val, btype = resolve_barcode(r["Codigo"], r["CodBarras"], barcodes, warehouse_codigo)
+            val, btype = resolve_barcode(
+                r["Codigo"],
+                r["CodBarras"],
+                barcodes,
+                warehouse_codigo,
+            )
             artigos.append({
                 "Codigo": r["Codigo"],
                 "Produto": r["Produto"],
