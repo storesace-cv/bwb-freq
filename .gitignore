@@ -3,5 +3,11 @@ __pycache__/
 *.pyc
 .databases/
 databases/
+!databases/.gitkeep
+!databases/backups/.gitkeep
 out/
 imports/processed/
+!imports/.gitkeep
+!imports/incoming/.gitkeep
+!imports/examples/.gitkeep
+!imports/processed/.gitkeep
