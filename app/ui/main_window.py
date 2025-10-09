@@ -26,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.data.db import get_connection, init_db
+from app.ui.background_utils import BackgroundLayer, ensure_transparent
 from app.services.printer import (
     ArticleFilter,
     build_print_context,
@@ -48,8 +49,12 @@ class MainWindow(QMainWindow):
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
         self.setFixedSize(1024, 768)
-        self.setAttribute(Qt.WA_TranslucentBackground, True)
-        self.setAutoFillBackground(False)
+        ensure_transparent(self)
+        self._background_layer = BackgroundLayer(
+            self,
+            Path(__file__).with_name("bwb-Splash-background.png"),
+            "main-background",
+        )
         init_db()
 
         self._warehouses: List[Warehouse] = []
@@ -59,9 +64,7 @@ class MainWindow(QMainWindow):
 
         central = QWidget(self)
         central.setObjectName("central-widget")
-        central.setAttribute(Qt.WA_TranslucentBackground, True)
-        central.setAttribute(Qt.WA_StyledBackground, True)
-        central.setAutoFillBackground(False)
+        ensure_transparent(central)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -136,11 +139,7 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
 
         self.setCentralWidget(central)
-        self.setStyleSheet(
-            "QMainWindow { background: transparent; }\n"
-            "#central-widget { background: transparent; }\n"
-            "QStatusBar { background: transparent; }"
-        )
+        ensure_transparent(self.statusBar())
 
         self.refresh_warehouses()
 
