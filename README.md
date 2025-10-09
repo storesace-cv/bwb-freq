@@ -122,8 +122,9 @@ pytest -q
 Os datasets de teste são gerados dinamicamente a partir dos exemplos em `imports/examples/` (ou, na ausência destes, através de dados sintéticos mínimos) e cobrem o fluxo completo de importação, geração de `WarehouseArticles` e exportação do contexto para ReportBro.
 
 ### GUI (pré-visualização MVP)
+O script `launcher.sh` garante que as dependências Python estão instaladas antes de arrancar o módulo gráfico.
 ```bash
-./start-freq
+./launcher.sh
 # ou
 python -m app.ui
 ```
