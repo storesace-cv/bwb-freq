@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 from typing import Dict, Iterable, List
 
 from PySide6.QtCore import Qt
@@ -27,6 +26,7 @@ from PySide6.QtWidgets import (
 )
 
 from app.data.db import get_connection, init_db
+from app.ui.assets import BACKGROUND_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
 from app.services.printer import (
     ArticleFilter,
@@ -53,7 +53,7 @@ class MainWindow(QMainWindow):
         ensure_transparent(self)
         self._background_layer = BackgroundLayer(
             self,
-            Path(__file__).with_name("bwb-Splash-background.png"),
+            BACKGROUND_IMAGE,
             "main-background",
         )
         init_db()

@@ -1,12 +1,11 @@
 """Splash screen with transparent background awaiting user interaction."""
 from __future__ import annotations
 
-from pathlib import Path
-
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import QDialog, QLabel
 
+from app.ui.assets import BACKGROUND_IMAGE, SPLASH_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
 
 
@@ -22,14 +21,11 @@ class SplashScreen(QDialog):
         self.setWindowFlags(Qt.SplashScreen | Qt.FramelessWindowHint)
         ensure_transparent(self)
 
-        background_path = Path(__file__).with_name("bwb-Splash-background.png")
-        splash_path = Path(__file__).with_name("bwb-Splash.png")
-
         self._background_layer = BackgroundLayer(
-            self, background_path, "splash-background"
+            self, BACKGROUND_IMAGE, "splash-background"
         )
 
-        pixmap = QPixmap(str(splash_path))
+        pixmap = QPixmap(str(SPLASH_IMAGE))
         self._label = QLabel(self)
         self._label.setObjectName("splash-image")
         self._label.setPixmap(pixmap)
