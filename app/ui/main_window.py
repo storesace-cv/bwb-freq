@@ -47,6 +47,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
+        self.setAttribute(Qt.WA_TranslucentBackground, True)
+        self.setAutoFillBackground(False)
         init_db()
 
         self._warehouses: List[Warehouse] = []
@@ -55,6 +57,9 @@ class MainWindow(QMainWindow):
         self._current_warehouse: Warehouse | None = None
 
         central = QWidget(self)
+        central.setObjectName("central-widget")
+        central.setAttribute(Qt.WA_StyledBackground, True)
+        central.setAutoFillBackground(False)
         layout = QVBoxLayout(central)
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
@@ -129,6 +134,10 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
 
         self.setCentralWidget(central)
+        self.setStyleSheet(
+            "QMainWindow { background-color: transparent; }\n"
+            "#central-widget { background-color: transparent; }"
+        )
 
         self.refresh_warehouses()
 
