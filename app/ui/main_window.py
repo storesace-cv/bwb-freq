@@ -245,13 +245,24 @@ class MainWindow(QMainWindow):
         self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
 
         self.table_container = QWidget(self.workspace)
+        self.table_container.setObjectName("table-container")
         self.table_container.setVisible(False)
         self.table_container.setAttribute(Qt.WA_StyledBackground, True)
+        self.table_container.setStyleSheet(
+            "#table-container { background-color: rgba(218, 210, 210, 0.50);"
+            " border-radius: 12px; padding: 16px; }"
+        )
         table_container_layout = QVBoxLayout(self.table_container)
         table_container_layout.setContentsMargins(0, 0, 0, 0)
         table_container_layout.setSpacing(12)
 
         table_header = QWidget(self.table_container)
+        table_header.setObjectName("table-header")
+        table_header.setAttribute(Qt.WA_StyledBackground, True)
+        table_header.setStyleSheet(
+            "#table-header { background-color: rgba(218, 210, 210, 0.50);"
+            " border-radius: 8px; padding: 10px 12px; }"
+        )
         table_header_layout = QHBoxLayout(table_header)
         table_header_layout.setContentsMargins(0, 0, 0, 0)
         table_header_layout.setSpacing(12)
@@ -288,6 +299,12 @@ class MainWindow(QMainWindow):
         self.table_widget.setAttribute(Qt.WA_StyledBackground, True)
         self.table_widget.setAutoFillBackground(False)
         self.table_widget.viewport().setAutoFillBackground(False)
+        self.table_widget.setStyleSheet(
+            "QTableWidget { background-color: rgba(218, 210, 210, 0.50);"
+            " alternate-background-color: rgba(228, 220, 220, 0.45);"
+            " gridline-color: rgba(208, 208, 208, 0.50);"
+            " border-radius: 8px; }"
+        )
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(False)
         table_container_layout.addWidget(self.table_widget)
