@@ -51,7 +51,8 @@ CREATE TABLE IF NOT EXISTS ArticleBarcodes (
   Price REAL,
   StoreNames TEXT,
   BrandNames TEXT,
-  ZoneNames TEXT
+  ZoneNames TEXT,
+  FOREIGN KEY (ArticleFoId) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS FichasTecnicas (
@@ -61,7 +62,9 @@ CREATE TABLE IF NOT EXISTS FichasTecnicas (
   Unidade TEXT,
   NomeProdVendaGenerico TEXT,
   NomeComponente TEXT,
-  PRIMARY KEY (ProdVendaGenerico, Componente)
+  PRIMARY KEY (ProdVendaGenerico, Componente),
+  FOREIGN KEY (ProdVendaGenerico) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE,
+  FOREIGN KEY (Componente) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE
 );
 
 CREATE TABLE IF NOT EXISTS WarehouseArticles (
