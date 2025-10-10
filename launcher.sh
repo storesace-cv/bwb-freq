@@ -26,6 +26,9 @@ case "$UNAME_OUTPUT" in
   Linux)
     QT_PLATFORM_DEFAULT="xcb"
     unset QT_MAC_WANTS_LAYER
+    if [[ -z "${QT_QPA_PLATFORM:-}" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+      QT_PLATFORM_DEFAULT="offscreen"
+    fi
     ;;
   MINGW*|MSYS*|CYGWIN*)
     QT_PLATFORM_DEFAULT="windows"
@@ -49,15 +52,20 @@ if [[ -n "$QT_PLATFORM_DEFAULT" ]]; then
 fi
 
 # 2) Garantir PySide6 (instala 6.7.3 se faltar; define BWB_FORCE_PYSIDE6_673=1 para forçar)
+ensure_pyside6() {
+  # Instalamos/forçamos PySide6 6.7.3 e pacotes dependentes necessários.
+  "$PYBIN" -m pip install -q "PySide6==6.7.3" "PySide6-Essentials==6.7.3" "PySide6-Addons==6.7.3"
+}
+
 if [[ "${BWB_FORCE_PYSIDE6_673:-0}" == "1" ]]; then
-  "$PYBIN" -m pip install -q "PySide6==6.7.3"
+  ensure_pyside6
 else
   if ! "$PYBIN" - >/dev/null 2>&1 <<'PY'
 import importlib.util, sys
 sys.exit(0 if importlib.util.find_spec("PySide6") else 1)
 PY
   then
-    "$PYBIN" -m pip install -q "PySide6==6.7.3"
+    ensure_pyside6
   fi
 fi
 
@@ -83,6 +91,41 @@ PYSIDE_DIR="$(echo "$QT_INFO" | sed -n '3p')"
 if [[ -z "$QT_PLUGINS_ROOT" || -z "$QT_PLATFORMS_DIR" || ! -d "$QT_PLATFORMS_DIR" ]]; then
   echo "❌ PySide6 encontrado, mas diretório de plugins inválido: '$QT_PLUGINS_ROOT' / '$QT_PLATFORMS_DIR'." >&2
   exit 1
+fi
+
+# 3b) Verificar se o plugin principal existe; se não, reinstalar PySide6 uma vez
+EXPECTED_PLUGIN=""
+case "$QT_PLATFORM_DEFAULT" in
+  cocoa) EXPECTED_PLUGIN="libqcocoa.dylib" ;;
+  xcb) EXPECTED_PLUGIN="libqxcb.so" ;;
+  offscreen) EXPECTED_PLUGIN="libqoffscreen.so" ;;
+  windows) EXPECTED_PLUGIN="qwindows.dll" ;;
+esac
+
+if [[ -n "$EXPECTED_PLUGIN" && ! -e "$QT_PLATFORMS_DIR/$EXPECTED_PLUGIN" ]]; then
+  echo "⚠️ Plugin Qt '$EXPECTED_PLUGIN' não encontrado em '$QT_PLATFORMS_DIR'; a reinstalar PySide6…" >&2
+  ensure_pyside6
+  QT_INFO="$("$PYBIN" <<'PY'
+import pathlib
+import PySide6
+from PySide6.QtCore import QLibraryInfo
+base = pathlib.Path(PySide6.__file__).resolve().parent
+plugins_root = pathlib.Path(QLibraryInfo.path(QLibraryInfo.PluginsPath))
+if not plugins_root.exists():
+    plugins_root = base/"Qt"/"plugins"
+platforms = plugins_root/"platforms"
+print(plugins_root)
+print(platforms)
+print(base)
+PY
+)"
+  QT_PLUGINS_ROOT="$(echo "$QT_INFO" | sed -n '1p')"
+  QT_PLATFORMS_DIR="$(echo "$QT_INFO" | sed -n '2p')"
+  PYSIDE_DIR="$(echo "$QT_INFO" | sed -n '3p')"
+  if [[ ! -d "$QT_PLATFORMS_DIR" || ! -e "$QT_PLATFORMS_DIR/$EXPECTED_PLUGIN" ]]; then
+    echo "❌ Mesmo após reinstalar PySide6, o plugin '$EXPECTED_PLUGIN' continua ausente em '$QT_PLATFORMS_DIR'." >&2
+    exit 1
+  fi
 fi
 
 # 4) Remover quarentena (best-effort; silencioso)
