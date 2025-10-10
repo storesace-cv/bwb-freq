@@ -36,6 +36,7 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
+from app.utils.barcodes import classify_gs1_barcode
 
 
 @dataclass(frozen=True)
@@ -456,45 +457,22 @@ class MainWindow(QMainWindow):
         if not barcode_value:
             return None
 
-        digits = barcode_value.strip()
-        if not digits.isdigit():
+        barcode_type = classify_gs1_barcode(barcode_value)
+        friendly_labels = {
+            "EAN13": "EAN-13",
+            "EAN8": "EAN-8",
+            "UPCA": "UPC-A",
+            "UPCE": "UPC-E",
+            "GTIN14": "GTIN-14",
+            "GS1-128": "GS1-128",
+            "GS1DataBar": "GS1 DataBar",
+            "SSCC": "SSCC",
+            "Code128": "Code128",
+        }
+        label = friendly_labels.get(barcode_type)
+        if label == "Code128" and not barcode_value.strip():
             return None
-
-        length = len(digits)
-        if length == 13:
-            return "EAN-13"
-        if length == 12:
-            return "UPC-A"
-        if length == 8:
-            if self._looks_like_upc_e(digits):
-                return "UPC-E"
-            return "EAN-8"
-
-        return None
-
-    def _looks_like_upc_e(self, digits: str) -> bool:
-        if len(digits) != 8 or not digits.isdigit():
-            return False
-        if digits[0] not in {"0", "1"}:
-            return False
-
-        data = digits[1:7]
-        last = data[-1]
-
-        if last in {"0", "1", "2"}:
-            manufacturer = data[:2] + last
-            product = "00" + data[2:5]
-        elif last == "3":
-            manufacturer = data[:3]
-            product = "000" + data[3:5]
-        elif last == "4":
-            manufacturer = data[:4]
-            product = "0000" + data[4]
-        else:
-            manufacturer = data[:5]
-            product = "0000" + last
-
-        return len(manufacturer) == 5 and len(product) == 5
+        return label
 
     def _set_barcode_cell(
         self, row_index: int, col_index: int, barcode_value: str | None
