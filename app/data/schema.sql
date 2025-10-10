@@ -55,6 +55,16 @@ CREATE TABLE IF NOT EXISTS ArticleBarcodes (
   FOREIGN KEY (ArticleFoId) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE
 );
 
+-- Ensure that legacy data does not contain duplicate barcode entries before the
+-- unique index below is applied. We keep the first occurrence of each
+-- (ArticleFoId, Barcode) pair and discard the remaining duplicates.
+DELETE FROM ArticleBarcodes
+WHERE rowid NOT IN (
+  SELECT MIN(rowid)
+  FROM ArticleBarcodes
+  GROUP BY ArticleFoId, Barcode
+);
+
 CREATE TABLE IF NOT EXISTS FichasTecnicas (
   ProdVendaGenerico TEXT NOT NULL,
   Componente TEXT NOT NULL,
