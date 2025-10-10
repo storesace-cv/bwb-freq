@@ -4,6 +4,7 @@
 - `netbo_articles.xlsx` → `NetboArticles`
 - `Lojas e Armazens.xlsx` → `Wharehouses`
 - `article_barcodes.xlsx` → `ArticleBarcodes`
+- `Fichas Tecnicas.xlsx` → `FichasTecnicas`
 
 > Todos os cabeçalhos são importados (mesmo que não usados). Nomes de colunas finais em **PascalCase** conforme os mapeamentos abaixo e em `MAPPINGS.md`.
 
@@ -40,6 +41,14 @@
 - brand_names → BrandNames
 - zone_names → ZoneNames
 
+### `Fichas Tecnicas.xlsx` → `FichasTecnicas`
+- Prod Venda / Generico → ProdVendaGenerico
+- Componente → Componente
+- Quantidade → Quantidade
+- Unidade → Unidade
+- Nome prod venda / generico → NomeProdVendaGenerico *(opcional para importação)*
+- Nome componente → NomeComponente *(opcional para importação)*
+
 ---
 
 ## Validações
@@ -51,5 +60,5 @@
 ---
 
 ## Reimportação (upsert)
-- **Chaves**: `Codigo` para `NetboArticles`; `Codigo` para `Wharehouses`; (`ArticleFoId`, `Barcode`) para `ArticleBarcodes` (ou surrogate `Id`).
+- **Chaves**: `Codigo` para `NetboArticles`; `Codigo` para `Wharehouses`; (`ArticleFoId`, `Barcode`) para `ArticleBarcodes` (ou surrogate `Id`); (`ProdVendaGenerico`, `Componente`) para `FichasTecnicas`.
 - **Estratégia**: `INSERT OR REPLACE`, exceto quando a linha vier vazia/sem chave → ignorar.

@@ -1,5 +1,8 @@
 import re
+from typing import Any
+
 import pandas as pd
+
 from app.data.db import get_connection
 
 def _norm_bool(v):
@@ -100,6 +103,93 @@ def import_article_barcodes(xlsx_path: str) -> int:
             'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
             "VALUES(datetime('now'), ?, ?, ?, NULL)",
             (xlsx_path, "barcodes", n),
+        )
+        conn.commit()
+        return n
+
+def _parse_quantity(value: Any) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.replace(" ", "").replace(",", ".")
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def import_fichas_tecnicas(xlsx_path: str) -> int:
+    df = pd.read_excel(xlsx_path, dtype=str).fillna("")
+    mapping = {
+        "Prod Venda / Generico": "ProdVendaGenerico",
+        "Componente": "Componente",
+        "Quantidade": "Quantidade",
+        "Unidade": "Unidade",
+        "Nome prod venda / generico": "NomeProdVendaGenerico",
+        "Nome componente": "NomeComponente",
+    }
+    df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
+
+    missing_required = [c for c in ("ProdVendaGenerico", "Componente") if c not in df.columns]
+    if missing_required:
+        raise ValueError(
+            "Ficheiro de fichas técnicas em falta de colunas obrigatórias: "
+            + ", ".join(missing_required)
+        )
+
+    text_columns = [
+        "ProdVendaGenerico",
+        "Componente",
+        "Unidade",
+        "NomeProdVendaGenerico",
+        "NomeComponente",
+    ]
+    for col in text_columns:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
+    if "Quantidade" in df.columns:
+        df["Quantidade"] = df["Quantidade"].apply(_parse_quantity)
+
+    desired_columns = [
+        "ProdVendaGenerico",
+        "Componente",
+        "Quantidade",
+        "Unidade",
+        "NomeProdVendaGenerico",
+        "NomeComponente",
+    ]
+    columns_present = [c for c in desired_columns if c in df.columns]
+
+    with get_connection() as conn:
+        n = 0
+        placeholders = ",".join([f":{c}" for c in columns_present]).replace('"', "")
+        for _, row in df.iterrows():
+            prod = row.get("ProdVendaGenerico", "").strip()
+            comp = row.get("Componente", "").strip()
+            if not prod or not comp:
+                continue
+            payload = {}
+            for col in columns_present:
+                value = row.get(col, None)
+                if isinstance(value, str):
+                    value = value.strip()
+                if pd.isna(value):
+                    value = None
+                payload[col] = value
+            conn.execute(
+                f"INSERT OR REPLACE INTO FichasTecnicas ({','.join(columns_present)}) VALUES ({placeholders})",
+                payload,
+            )
+            n += 1
+        conn.execute(
+            'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
+            "VALUES(datetime('now'), ?, ?, ?, NULL)",
+            (xlsx_path, "fichas_tecnicas", n),
         )
         conn.commit()
         return n

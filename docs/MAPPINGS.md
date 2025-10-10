@@ -63,3 +63,15 @@ store_names → StoreNames
 brand_names → BrandNames
 zone_names → ZoneNames
 ```
+
+---
+
+## `Fichas Tecnicas.xlsx` → `FichasTecnicas`
+```
+Prod Venda / Generico → ProdVendaGenerico
+Componente → Componente
+Quantidade → Quantidade
+Unidade → Unidade
+Nome prod venda / generico → NomeProdVendaGenerico
+Nome componente → NomeComponente
+```

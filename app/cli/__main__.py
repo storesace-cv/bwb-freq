@@ -1,7 +1,13 @@
 import argparse, os, sys
 from pathlib import Path
 from app.data.db import init_db, get_connection
-from app.services.importer import import_netbo_articles, import_wharehouses, import_article_barcodes, build_warehouse_articles_from_disp
+from app.services.importer import (
+    import_netbo_articles,
+    import_wharehouses,
+    import_article_barcodes,
+    import_fichas_tecnicas,
+    build_warehouse_articles_from_disp,
+)
 from app.services.validators import validate_integrity
 from app.services.printer import export_context_json, export_csv_simple
 
@@ -16,6 +22,9 @@ def cmd_import(args):
     if args.barcodes:
         n = import_article_barcodes(args.barcodes)
         print(f"[import] ArticleBarcodes: {n} linhas")
+    if args.fichas:
+        n = import_fichas_tecnicas(args.fichas)
+        print(f"[import] FichasTecnicas: {n} linhas")
     build_warehouse_articles_from_disp()
     print("[import] WarehouseArticles atualizado a partir de DispLojas")
 
@@ -56,6 +65,7 @@ def main(argv=None):
     p_imp.add_argument("--articles", help="caminho para netbo_articles.xlsx")
     p_imp.add_argument("--warehouses", help="caminho para Lojas e Armazens.xlsx")
     p_imp.add_argument("--barcodes", help="caminho para article_barcodes.xlsx")
+    p_imp.add_argument("--fichas", help="caminho para Fichas Tecnicas.xlsx")
     p_imp.set_defaults(func=cmd_import)
 
     p_val = sub.add_parser("validate", help="Validar integridade de dados")

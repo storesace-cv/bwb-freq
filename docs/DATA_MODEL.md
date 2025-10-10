@@ -2,7 +2,7 @@
 
 ## Tipos de tabelas
 - **Tipo 1 (Importadas)**: Conteúdo só pode ser alterado por **reimportação**.
-  - `NetboArticles`, `Wharehouses`, `ArticleBarcodes`
+  - `NetboArticles`, `Wharehouses`, `ArticleBarcodes`, `FichasTecnicas`
 - **Tipo 2 (Internas)**: Utilização normal (CRUD pela app).
   - `Requisitions`, `RequisitionLines`, `Settings`, `WarehouseArticles` (normalizada), `ImportsLog`
 
@@ -77,6 +77,18 @@
 
 ---
 
+### `FichasTecnicas`
+| Campo | Tipo | Notas |
+|---|---|---|
+| ProdVendaGenerico | TEXT | Código do artigo de venda/genérico |
+| Componente | TEXT | Código do artigo componente |
+| Quantidade | REAL | Quantidade necessária na ficha |
+| Unidade | TEXT | Unidade de medida |
+| NomeProdVendaGenerico | TEXT | Nome original do produto (quando disponível) |
+| NomeComponente | TEXT | Nome original do componente (quando disponível) |
+
+---
+
 ## Tabelas Tipo 2 (Internas)
 
 ### `WarehouseArticles`
@@ -123,7 +135,7 @@ Regista cada importação (ficheiro, hash, contagens, avisos).
 | Id | INTEGER PRIMARY KEY AUTOINCREMENT |
 | When | TEXT |
 | File | TEXT |
-| Kind | TEXT | 'articles' | 'warehouses' | 'barcodes' |
+| Kind | TEXT | 'articles' | 'warehouses' | 'barcodes' | 'fichas_tecnicas' |
 | Rows | INTEGER |
 | Notes | TEXT |
 
@@ -135,6 +147,8 @@ erDiagram
     NetboArticles ||--o{ WarehouseArticles : "DispLojas ➜ WarehouseCodigo"
     Wharehouses ||--o{ WarehouseArticles : "Codigo"
     NetboArticles ||--o{ ArticleBarcodes : "Codigo = ArticleFoId"
+    NetboArticles ||--o{ FichasTecnicas : "Codigo = ProdVendaGenerico"
+    NetboArticles ||--o{ FichasTecnicas : "Codigo = Componente"
     Requisitions ||--o{ RequisitionLines : "Id = RequisitionId"
     NetboArticles ||--o{ RequisitionLines : "Codigo = ArticleCodigo"
     Wharehouses ||--o{ Requisitions : "Codigo = WarehouseCodigo"

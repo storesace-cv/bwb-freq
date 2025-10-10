@@ -32,6 +32,7 @@ from app.data.db import get_connection, init_db
 from app.services.importer import (
     build_warehouse_articles_from_disp,
     import_article_barcodes,
+    import_fichas_tecnicas,
     import_netbo_articles,
     import_wharehouses,
 )
@@ -93,6 +94,18 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
         ),
         table_kind="barcodes",
+    ),
+    "fichas_tecnicas": TableDisplayConfig(
+        columns=(
+            "ProdVendaGenerico",
+            "Componente",
+            "Quantidade",
+            "Unidade",
+        ),
+        query=(
+            "SELECT ProdVendaGenerico, Componente, Quantidade, Unidade FROM FichasTecnicas"
+        ),
+        table_kind="fichas_tecnicas",
     ),
 }
 
@@ -238,6 +251,11 @@ class MainWindow(QMainWindow):
             tabelas_menu,
             "Artigos | Códigos de Barras",
             handler=partial(self._show_table, "barcodes"),
+        )
+        self._add_action(
+            tabelas_menu,
+            "Artigos | Fichas Técnicas",
+            handler=partial(self._show_table, "fichas_tecnicas"),
         )
 
         utilitarios_menu = self._add_submenu(menu, "Utilitários")
@@ -625,6 +643,7 @@ class MainWindow(QMainWindow):
             ("netbo_articles.xlsx", import_netbo_articles, "NetboArticles"),
             ("Lojas e Armazens.xlsx", import_wharehouses, "Wharehouses"),
             ("article_barcodes.xlsx", import_article_barcodes, "ArticleBarcodes"),
+            ("Fichas Tecnicas.xlsx", import_fichas_tecnicas, "FichasTecnicas"),
         )
 
         imported = []
