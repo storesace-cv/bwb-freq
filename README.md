@@ -8,6 +8,7 @@ Cada requisição lista os **artigos ativos no armazém**, incluindo **Código**
 ---
 
 ## Principais requisitos
+- **Compatibilidade de plataformas**: o foco principal é garantir que a aplicação funcione em **Windows** (prioridade máxima) e em **macOS arm64 (Apple Silicon/M1)**. Não há suporte previsto para outros sistemas operativos nesta fase.
 - **Importação** inicial a partir de ficheiros Excel:
 - `netbo_articles.xlsx` → tabela `NetboArticles` (Tipo 1 / imutável por UI)
 - `Lojas e Armazens.xlsx` → tabela `Wharehouses` (Tipo 1 / imutável por UI)
