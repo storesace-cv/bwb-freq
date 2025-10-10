@@ -11,6 +11,7 @@ from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
+    QFrame,
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
@@ -57,6 +58,237 @@ BARCODE_DISPLAY_LIMIT = 14
 HOME_TABLE_ID = "home_barcodes"
 
 
+class FrozenColumnTableWidget(QTableWidget):
+    """QTableWidget with support for keeping one column frozen."""
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self._frozen_column: int | None = None
+        self._selection_sync_in_progress = False
+
+        self._frozen_view = QTableWidget(self)
+        self._frozen_view.setFocusPolicy(Qt.NoFocus)
+        self._frozen_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self._frozen_view.setSelectionMode(QAbstractItemView.SingleSelection)
+        self._frozen_view.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self._frozen_view.setAlternatingRowColors(True)
+        self._frozen_view.verticalHeader().hide()
+        self._frozen_view.horizontalHeader().setVisible(True)
+        self._frozen_view.horizontalHeader().setStretchLastSection(True)
+        self._frozen_view.horizontalHeader().setSectionResizeMode(QHeaderView.Fixed)
+        self._frozen_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._frozen_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self._frozen_view.setFrameShape(QFrame.NoFrame)
+        self._frozen_view.setShowGrid(True)
+        self._frozen_view.hide()
+
+        self.viewport().stackUnder(self._frozen_view)
+
+        self.horizontalHeader().sectionResized.connect(self._handle_section_resize)
+        self.verticalHeader().sectionResized.connect(self._sync_row_height)
+        self.verticalScrollBar().valueChanged.connect(self._sync_vertical_scroll)
+        self.horizontalScrollBar().valueChanged.connect(self._update_frozen_geometry)
+        self._frozen_view.horizontalHeader().sectionResized.connect(
+            self._mirror_frozen_section_resize
+        )
+        self._frozen_view.verticalScrollBar().valueChanged.connect(
+            self.verticalScrollBar().setValue
+        )
+
+        # Keep row selection consistent between the main and frozen views.
+        selection_model = self.selectionModel()
+        if selection_model is not None:
+            selection_model.selectionChanged.connect(self._mirror_selection_to_frozen)
+        self._frozen_view.itemSelectionChanged.connect(self._mirror_selection_from_frozen)
+
+    # ------------------------------------------------------------------
+    # Public helpers
+    # ------------------------------------------------------------------
+    def setStyleSheet(self, style: str) -> None:  # type: ignore[override]
+        super().setStyleSheet(style)
+        self._frozen_view.setStyleSheet(style)
+
+    def setSelectionMode(self, mode: QAbstractItemView.SelectionMode) -> None:  # type: ignore[override]
+        super().setSelectionMode(mode)
+        self._frozen_view.setSelectionMode(mode)
+
+    def setSelectionBehavior(
+        self, behavior: QAbstractItemView.SelectionBehavior
+    ) -> None:  # type: ignore[override]
+        super().setSelectionBehavior(behavior)
+        self._frozen_view.setSelectionBehavior(behavior)
+
+    def setAlternatingRowColors(self, enable: bool) -> None:  # type: ignore[override]
+        super().setAlternatingRowColors(enable)
+        self._frozen_view.setAlternatingRowColors(enable)
+
+    def setVisible(self, visible: bool) -> None:  # type: ignore[override]
+        super().setVisible(visible)
+        if not visible:
+            self._frozen_view.hide()
+        elif self._frozen_column is not None and self._frozen_view.columnCount():
+            self._frozen_view.show()
+
+    def clear(self) -> None:  # type: ignore[override]
+        super().clear()
+        self._reset_frozen_view()
+
+    def set_frozen_column(self, column_index: int | None) -> None:
+        """Set ``column_index`` as frozen or disable the feature when ``None``."""
+
+        if column_index is None or column_index < 0 or column_index >= self.columnCount():
+            self._frozen_column = None
+            self._reset_frozen_view()
+            self.setViewportMargins(0, 0, 0, 0)
+            for col in range(self.columnCount()):
+                self.setColumnHidden(col, False)
+            return
+
+        self._frozen_column = column_index
+        self._copy_column_to_frozen(column_index)
+        for col in range(self.columnCount()):
+            self.setColumnHidden(col, col == column_index)
+        self._update_frozen_geometry()
+        self._mirror_selection_to_frozen()
+
+    def refresh_frozen_contents(self) -> None:
+        """Refresh data within the frozen column after the table changes."""
+
+        if self._frozen_column is None:
+            return
+        self._copy_column_to_frozen(self._frozen_column)
+        self._mirror_selection_to_frozen()
+        self._update_frozen_geometry()
+
+    # ------------------------------------------------------------------
+    # Qt overrides
+    # ------------------------------------------------------------------
+    def resizeEvent(self, event):  # type: ignore[override]
+        super().resizeEvent(event)
+        self._update_frozen_geometry()
+
+    def scrollContentsBy(self, dx, dy):  # type: ignore[override]
+        super().scrollContentsBy(dx, dy)
+        if dy:
+            self._sync_vertical_scroll(self.verticalScrollBar().value())
+
+    # ------------------------------------------------------------------
+    # Internal helpers
+    # ------------------------------------------------------------------
+    def _reset_frozen_view(self) -> None:
+        self._frozen_view.hide()
+        self._frozen_view.clear()
+        self._frozen_view.setRowCount(0)
+        self._frozen_view.setColumnCount(0)
+        self.setViewportMargins(0, 0, 0, 0)
+
+    def _copy_column_to_frozen(self, column_index: int) -> None:
+        if column_index < 0 or column_index >= self.columnCount():
+            return
+
+        header_item = self.horizontalHeaderItem(column_index)
+        header_text = header_item.text() if header_item else ""
+
+        self._frozen_view.setUpdatesEnabled(False)
+        self._frozen_view.clear()
+        self._frozen_view.setColumnCount(1)
+        self._frozen_view.setHorizontalHeaderLabels([header_text])
+        self._frozen_view.setRowCount(self.rowCount())
+
+        for row in range(self.rowCount()):
+            source_item = self.item(row, column_index)
+            frozen_item = QTableWidgetItem(source_item) if source_item else QTableWidgetItem("")
+            if source_item:
+                frozen_item.setToolTip(source_item.toolTip())
+                frozen_item.setStatusTip(source_item.statusTip())
+                frozen_item.setWhatsThis(source_item.whatsThis())
+            frozen_item.setFlags((source_item.flags() if source_item else frozen_item.flags()) & ~Qt.ItemIsEditable)
+            self._frozen_view.setItem(row, 0, frozen_item)
+            self._frozen_view.setRowHeight(row, self.rowHeight(row))
+
+        preferred_width = self.columnWidth(column_index)
+        if preferred_width <= 0:
+            preferred_width = 220
+        self._frozen_view.setColumnWidth(0, preferred_width)
+
+        header_height = self.horizontalHeader().height()
+        self._frozen_view.horizontalHeader().setFixedHeight(header_height)
+        self._frozen_view.show()
+        self._update_frozen_geometry()
+
+        self._frozen_view.setUpdatesEnabled(True)
+
+    def _handle_section_resize(self, logical_index: int, _old: int, new: int) -> None:
+        if self._frozen_column is None:
+            return
+        if logical_index == self._frozen_column:
+            self._frozen_view.setColumnWidth(0, max(new, 60))
+            self._update_frozen_geometry()
+
+    def _mirror_frozen_section_resize(self, logical_index: int, _old: int, new: int) -> None:
+        if self._frozen_column is None:
+            return
+        if logical_index == 0:
+            self.horizontalHeader().resizeSection(self._frozen_column, new)
+            self._update_frozen_geometry()
+
+    def _sync_row_height(self, logical_index: int, _old: int, new: int) -> None:
+        if self._frozen_column is None:
+            return
+        self._frozen_view.setRowHeight(logical_index, new)
+
+    def _sync_vertical_scroll(self, value: int) -> None:
+        if self._frozen_column is None:
+            return
+        self._frozen_view.verticalScrollBar().setValue(value)
+
+    def _update_frozen_geometry(self, *_args) -> None:
+        if self._frozen_column is None or not self._frozen_view.columnCount():
+            self.setViewportMargins(0, 0, 0, 0)
+            self._frozen_view.hide()
+            return
+
+        frozen_width = self._frozen_view.columnWidth(0) + self._frozen_view.verticalHeader().width()
+        self.setViewportMargins(frozen_width, 0, 0, 0)
+
+        header_height = self.horizontalHeader().height()
+        self._frozen_view.setGeometry(
+            self.frameWidth(),
+            self.frameWidth(),
+            frozen_width,
+            self.viewport().height() + header_height,
+        )
+        self._frozen_view.raise_()
+        self._frozen_view.show()
+
+    def _mirror_selection_to_frozen(self, *_args) -> None:
+        if self._frozen_column is None or self._selection_sync_in_progress:
+            return
+        self._selection_sync_in_progress = True
+        try:
+            self._frozen_view.clearSelection()
+            selection = self.selectionModel()
+            if selection is None:
+                return
+            for index in selection.selectedRows():
+                self._frozen_view.selectRow(index.row())
+        finally:
+            self._selection_sync_in_progress = False
+
+    def _mirror_selection_from_frozen(self) -> None:
+        if self._frozen_column is None or self._selection_sync_in_progress:
+            return
+        self._selection_sync_in_progress = True
+        try:
+            self.clearSelection()
+            selection = self._frozen_view.selectionModel()
+            if selection is None:
+                return
+            for index in selection.selectedRows():
+                self.selectRow(index.row())
+        finally:
+            self._selection_sync_in_progress = False
+
 TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
     HOME_TABLE_ID: TableDisplayConfig(
         title="Artigos | Códigos de Barras",
@@ -84,7 +316,10 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "    JOIN NetboArticles AS generic ON generic.Codigo = ft.ProdVendaGenerico "
             "    WHERE IFNULL(generic.Generico, 0) = 1"
             ") "
-            "ORDER BY ab.ArticleName COLLATE NOCASE"
+            "ORDER BY "
+            "    na.Familia COLLATE NOCASE, "
+            "    na.SubFamilia COLLATE NOCASE, "
+            "    ab.ArticleName COLLATE NOCASE"
         ),
         table_kind="barcodes",
     ),
@@ -320,7 +555,7 @@ class MainWindow(QMainWindow):
 
         table_container_layout.addWidget(table_header)
 
-        self.table_widget = QTableWidget(self.table_container)
+        self.table_widget = FrozenColumnTableWidget(self.table_container)
         self.table_widget.setVisible(False)
         self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -506,6 +741,7 @@ class MainWindow(QMainWindow):
         table_kind: str,
         title: str,
     ) -> None:
+        self.table_widget.set_frozen_column(None)
         self.table_widget.clear()
         self.table_widget.setColumnCount(len(columns))
         self.table_widget.setHorizontalHeaderLabels(columns)
@@ -557,6 +793,18 @@ class MainWindow(QMainWindow):
             self.table_widget.setRowCount(0)
 
         self._configure_header(columns, table_kind)
+
+        if (
+            self._current_table_id == HOME_TABLE_ID
+            and "ArticleName" in columns
+            and rows
+        ):
+            article_name_index = columns.index("ArticleName")
+            self.table_widget.resizeColumnToContents(article_name_index)
+            self.table_widget.set_frozen_column(article_name_index)
+        else:
+            self.table_widget.set_frozen_column(None)
+
         self.table_title.setText(title)
         self.table_container.setVisible(True)
         self.table_widget.setVisible(True)
