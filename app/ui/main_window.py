@@ -4,15 +4,14 @@ from dataclasses import dataclass
 from functools import partial
 from io import BytesIO
 from pathlib import Path
-from typing import Callable, Iterable
+from typing import Callable
 
-from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QGridLayout,
-    QFrame,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -55,358 +54,7 @@ class TableDisplayConfig:
 BARCODE_DISPLAY_LIMIT = 14
 
 
-HOME_TABLE_ID = "home_barcodes"
-
-
-class FrozenColumnsTableWidget(QTableWidget):
-    """QTableWidget that can keep the first *n* columns fixed like Excel."""
-
-    def __init__(self, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self._frozen_columns: list[int] = []
-        self._frozen_column_map: dict[int, int] = {}
-        self._selection_sync_in_progress = False
-        self._frozen_widget_factories: dict[tuple[int, int], Callable[[QWidget], QWidget]] = {}
-
-        self._frozen_view = QTableWidget(self)
-        self._frozen_view.setFocusPolicy(Qt.NoFocus)
-        self._frozen_view.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self._frozen_view.setSelectionMode(QAbstractItemView.SingleSelection)
-        self._frozen_view.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self._frozen_view.setAlternatingRowColors(True)
-        self._frozen_view.verticalHeader().setVisible(False)
-        self._frozen_view.horizontalHeader().setVisible(True)
-        self._frozen_view.horizontalHeader().setStretchLastSection(False)
-        self._frozen_view.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
-        self._frozen_view.setVerticalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._frozen_view.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self._frozen_view.setFrameShape(QFrame.NoFrame)
-        self._frozen_view.setShowGrid(True)
-        self._frozen_view.hide()
-
-        self.viewport().stackUnder(self._frozen_view)
-
-        self.horizontalHeader().sectionResized.connect(self._handle_section_resize)
-        self.verticalHeader().sectionResized.connect(self._sync_row_height)
-        self.verticalScrollBar().valueChanged.connect(self._sync_vertical_scroll)
-        self.horizontalScrollBar().valueChanged.connect(self._update_frozen_geometry)
-        self._frozen_view.verticalScrollBar().valueChanged.connect(
-            self.verticalScrollBar().setValue
-        )
-        self._frozen_view.horizontalHeader().sectionResized.connect(
-            self._mirror_frozen_section_resize
-        )
-
-        self.itemSelectionChanged.connect(self._mirror_selection_to_frozen)
-        self._frozen_view.itemSelectionChanged.connect(self._mirror_selection_from_frozen)
-
-    # ------------------------------------------------------------------
-    # Qt API customisations
-    # ------------------------------------------------------------------
-    def setStyleSheet(self, style: str) -> None:  # type: ignore[override]
-        super().setStyleSheet(style)
-        self._frozen_view.setStyleSheet(style)
-
-    def setSelectionMode(self, mode: QAbstractItemView.SelectionMode) -> None:  # type: ignore[override]
-        super().setSelectionMode(mode)
-        self._frozen_view.setSelectionMode(mode)
-
-    def setSelectionBehavior(
-        self, behavior: QAbstractItemView.SelectionBehavior
-    ) -> None:  # type: ignore[override]
-        super().setSelectionBehavior(behavior)
-        self._frozen_view.setSelectionBehavior(behavior)
-
-    def setAlternatingRowColors(self, enable: bool) -> None:  # type: ignore[override]
-        super().setAlternatingRowColors(enable)
-        self._frozen_view.setAlternatingRowColors(enable)
-
-    def setVisible(self, visible: bool) -> None:  # type: ignore[override]
-        super().setVisible(visible)
-        if not visible:
-            self._frozen_view.hide()
-        elif self._frozen_columns and self._frozen_view.columnCount():
-            self._frozen_view.show()
-
-    def clear(self) -> None:  # type: ignore[override]
-        super().clear()
-        self._frozen_widget_factories.clear()
-        self._reset_frozen_view()
-
-    def setRowCount(self, rows: int) -> None:  # type: ignore[override]
-        super().setRowCount(rows)
-        self._frozen_view.setRowCount(rows)
-        self._frozen_widget_factories.clear()
-        for row in range(rows):
-            self._frozen_view.setRowHeight(row, self.rowHeight(row))
-
-    def setColumnCount(self, columns: int) -> None:  # type: ignore[override]
-        super().setColumnCount(columns)
-        self._frozen_columns = [
-            col for col in self._frozen_columns if 0 <= col < columns
-        ]
-        self._frozen_column_map = {col: idx for idx, col in enumerate(self._frozen_columns)}
-        if not self._frozen_columns:
-            self._reset_frozen_view()
-        else:
-            self._rebuild_frozen_headers()
-
-    def setHorizontalHeaderLabels(self, labels: Iterable[str]) -> None:  # type: ignore[override]
-        super().setHorizontalHeaderLabels(labels)
-        self._rebuild_frozen_headers()
-
-    def setItem(self, row: int, column: int, item: QTableWidgetItem) -> None:  # type: ignore[override]
-        super().setItem(row, column, item)
-        self._copy_item_to_frozen(row, column)
-
-    # ------------------------------------------------------------------
-    # Public helpers
-    # ------------------------------------------------------------------
-    def set_frozen_columns(self, columns: list[int] | tuple[int, ...]) -> None:
-        unique_sorted = sorted({col for col in columns if 0 <= col < self.columnCount()})
-        if unique_sorted == self._frozen_columns:
-            self._update_frozen_geometry()
-            return
-
-        self._frozen_columns = unique_sorted
-        self._frozen_column_map = {col: idx for idx, col in enumerate(self._frozen_columns)}
-        self._frozen_widget_factories.clear()
-
-        if not self._frozen_columns:
-            self._reset_frozen_view()
-            for col in range(self.columnCount()):
-                self.setColumnHidden(col, False)
-            return
-
-        self._frozen_view.setUpdatesEnabled(False)
-        self._frozen_view.clear()
-        self._frozen_view.setRowCount(self.rowCount())
-        self._frozen_view.setColumnCount(len(self._frozen_columns))
-
-        header_labels: list[str] = []
-        for frozen_index, column in enumerate(self._frozen_columns):
-            header_item = self.horizontalHeaderItem(column)
-            header_labels.append(header_item.text() if header_item else "")
-            preferred_width = self.columnWidth(column)
-            if preferred_width <= 0:
-                preferred_width = self.horizontalHeader().sectionSize(column)
-            if preferred_width <= 0:
-                preferred_width = 120
-            self._frozen_view.setColumnWidth(frozen_index, preferred_width)
-
-        self._frozen_view.setHorizontalHeaderLabels(header_labels)
-
-        for row in range(self.rowCount()):
-            self._frozen_view.setRowHeight(row, self.rowHeight(row))
-            for column in self._frozen_columns:
-                self._copy_item_to_frozen(row, column)
-
-        for col in range(self.columnCount()):
-            self.setColumnHidden(col, col in self._frozen_columns)
-
-        self._frozen_view.setUpdatesEnabled(True)
-        self._update_frozen_geometry()
-        self._frozen_view.show()
-
-    def refresh_frozen_geometry(self) -> None:
-        self._update_frozen_geometry()
-
-    def set_frozen_cell_widget(
-        self,
-        row: int,
-        column: int,
-        factory: Callable[[QWidget], QWidget] | None,
-    ) -> None:
-        if column not in self._frozen_column_map:
-            return
-
-        frozen_column = self._frozen_column_map[column]
-        key = (row, column)
-
-        if factory is None:
-            self._frozen_widget_factories.pop(key, None)
-            widget = self._frozen_view.cellWidget(row, frozen_column)
-            if widget is not None:
-                widget.deleteLater()
-                self._frozen_view.removeCellWidget(row, frozen_column)
-            return
-
-        self._frozen_widget_factories[key] = factory
-        widget = factory(self._frozen_view)
-        existing = self._frozen_view.cellWidget(row, frozen_column)
-        if existing is not None:
-            existing.deleteLater()
-        self._frozen_view.setCellWidget(row, frozen_column, widget)
-
-    # ------------------------------------------------------------------
-    # Qt overrides
-    # ------------------------------------------------------------------
-    def resizeEvent(self, event):  # type: ignore[override]
-        super().resizeEvent(event)
-        self._update_frozen_geometry()
-
-    def scrollContentsBy(self, dx, dy):  # type: ignore[override]
-        super().scrollContentsBy(dx, dy)
-        if dy:
-            self._sync_vertical_scroll(self.verticalScrollBar().value())
-
-    # ------------------------------------------------------------------
-    # Internal helpers
-    # ------------------------------------------------------------------
-    def _reset_frozen_view(self) -> None:
-        self._frozen_view.hide()
-        self._frozen_view.clear()
-        self._frozen_view.setRowCount(0)
-        self._frozen_view.setColumnCount(0)
-        self.setViewportMargins(0, 0, 0, 0)
-
-    def _rebuild_frozen_headers(self) -> None:
-        if not self._frozen_columns:
-            return
-        header_labels: list[str] = []
-        for column in self._frozen_columns:
-            header_item = self.horizontalHeaderItem(column)
-            header_labels.append(header_item.text() if header_item else "")
-        if header_labels:
-            self._frozen_view.setHorizontalHeaderLabels(header_labels)
-
-    def _copy_item_to_frozen(self, row: int, column: int) -> None:
-        frozen_index = self._frozen_column_map.get(column)
-        if frozen_index is None:
-            return
-
-        if row >= self._frozen_view.rowCount():
-            self._frozen_view.setRowCount(self.rowCount())
-
-        source_item = self.item(row, column)
-        frozen_item = QTableWidgetItem(source_item) if source_item else QTableWidgetItem("")
-        if source_item:
-            frozen_item.setToolTip(source_item.toolTip())
-            frozen_item.setStatusTip(source_item.statusTip())
-            frozen_item.setWhatsThis(source_item.whatsThis())
-        frozen_item.setFlags((source_item.flags() if source_item else frozen_item.flags()) & ~Qt.ItemIsEditable)
-        self._frozen_view.setItem(row, frozen_index, frozen_item)
-        self._frozen_view.setRowHeight(row, self.rowHeight(row))
-
-        factory = self._frozen_widget_factories.get((row, column))
-        if factory is not None:
-            widget = factory(self._frozen_view)
-            existing = self._frozen_view.cellWidget(row, frozen_index)
-            if existing is not None:
-                existing.deleteLater()
-            self._frozen_view.setCellWidget(row, frozen_index, widget)
-
-    def _handle_section_resize(self, logical_index: int, _old: int, new: int) -> None:
-        frozen_index = self._frozen_column_map.get(logical_index)
-        if frozen_index is None:
-            return
-        self._frozen_view.setColumnWidth(frozen_index, max(new, 60))
-        self._update_frozen_geometry()
-
-    def _mirror_frozen_section_resize(self, logical_index: int, _old: int, new: int) -> None:
-        if logical_index >= len(self._frozen_columns):
-            return
-        column = self._frozen_columns[logical_index]
-        self.horizontalHeader().resizeSection(column, new)
-        self._update_frozen_geometry()
-
-    def _sync_row_height(self, logical_index: int, _old: int, new: int) -> None:
-        if logical_index >= self._frozen_view.rowCount():
-            return
-        self._frozen_view.setRowHeight(logical_index, new)
-
-    def _sync_vertical_scroll(self, value: int) -> None:
-        if value != self._frozen_view.verticalScrollBar().value():
-            self._frozen_view.verticalScrollBar().setValue(value)
-
-    def _update_frozen_geometry(self, *_args) -> None:
-        if not self._frozen_columns or not self._frozen_view.columnCount():
-            self.setViewportMargins(0, 0, 0, 0)
-            self._frozen_view.hide()
-            return
-
-        frozen_width = sum(
-            self._frozen_view.columnWidth(col) for col in range(self._frozen_view.columnCount())
-        )
-        frozen_width += self._frozen_view.frameWidth() * 2
-
-        self.setViewportMargins(frozen_width, 0, 0, 0)
-
-        header_height = self.horizontalHeader().height()
-        self._frozen_view.setGeometry(
-            self.frameWidth(),
-            self.frameWidth(),
-            frozen_width,
-            self.viewport().height() + header_height,
-        )
-        self._frozen_view.raise_()
-        if self.isVisible():
-            self._frozen_view.show()
-
-    def _mirror_selection_to_frozen(self) -> None:
-        if self._selection_sync_in_progress:
-            return
-        self._selection_sync_in_progress = True
-        try:
-            self._frozen_view.blockSignals(True)
-            self._frozen_view.clearSelection()
-            selection = self.selectionModel()
-            if selection is not None:
-                for index in selection.selectedRows():
-                    self._frozen_view.selectRow(index.row())
-        finally:
-            self._frozen_view.blockSignals(False)
-            self._selection_sync_in_progress = False
-
-    def _mirror_selection_from_frozen(self) -> None:
-        if self._selection_sync_in_progress:
-            return
-        self._selection_sync_in_progress = True
-        try:
-            self.blockSignals(True)
-            self.clearSelection()
-            selection = self._frozen_view.selectionModel()
-            if selection is not None:
-                for index in selection.selectedRows():
-                    self.selectRow(index.row())
-        finally:
-            self.blockSignals(False)
-            self._selection_sync_in_progress = False
-
 TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
-    HOME_TABLE_ID: TableDisplayConfig(
-        title="Artigos | Códigos de Barras",
-        columns=(
-            "ArticleFoId",
-            "ArticleName",
-            "Barcode",
-            "UnidadeName",
-            "Familia",
-            "SubFamilia",
-        ),
-        query=(
-            "SELECT "
-            "    ab.ArticleFoId, "
-            "    ab.ArticleName, "
-            "    ab.Barcode, "
-            "    ab.UnidadeName, "
-            "    na.Familia, "
-            "    na.SubFamilia "
-            "FROM ArticleBarcodes AS ab "
-            "LEFT JOIN NetboArticles AS na ON na.Codigo = ab.ArticleFoId "
-            "WHERE ab.ArticleFoId NOT IN ("
-            "    SELECT DISTINCT ft.Componente "
-            "    FROM FichasTecnicas AS ft "
-            "    JOIN NetboArticles AS generic ON generic.Codigo = ft.ProdVendaGenerico "
-            "    WHERE IFNULL(generic.Generico, 0) = 1"
-            ") "
-            "ORDER BY "
-            "    na.Familia COLLATE NOCASE, "
-            "    na.SubFamilia COLLATE NOCASE, "
-            "    ab.ArticleName COLLATE NOCASE"
-        ),
-        table_kind="barcodes",
-    ),
     "netbo": TableDisplayConfig(
         title="Artigos",
         columns=(
@@ -447,7 +95,6 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "ArticleName",
             "Barcode",
             "UnidadeName",
-            "Tipo de Código de Barras",
         ),
         query=(
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
@@ -602,7 +249,7 @@ class MainWindow(QMainWindow):
         self.table_container.setVisible(False)
         self.table_container.setAttribute(Qt.WA_StyledBackground, True)
         self.table_container.setStyleSheet(
-            "#table-container { background-color: rgba(255, 255, 255, 0.50);"
+            "#table-container { background-color: rgba(218, 210, 210, 0.50);"
             " border-radius: 12px; padding: 16px; }"
         )
         table_container_layout = QVBoxLayout(self.table_container)
@@ -613,7 +260,7 @@ class MainWindow(QMainWindow):
         table_header.setObjectName("table-header")
         table_header.setAttribute(Qt.WA_StyledBackground, True)
         table_header.setStyleSheet(
-            "#table-header { background-color: rgba(255, 255, 255, 0.50);"
+            "#table-header { background-color: rgba(218, 210, 210, 0.50);"
             " border-radius: 8px; padding: 10px 12px; }"
         )
         table_header_layout = QHBoxLayout(table_header)
@@ -640,7 +287,7 @@ class MainWindow(QMainWindow):
 
         table_container_layout.addWidget(table_header)
 
-        self.table_widget = FrozenColumnsTableWidget(self.table_container)
+        self.table_widget = QTableWidget(self.table_container)
         self.table_widget.setVisible(False)
         self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -653,14 +300,18 @@ class MainWindow(QMainWindow):
         self.table_widget.setAutoFillBackground(False)
         self.table_widget.viewport().setAutoFillBackground(False)
         self.table_widget.setStyleSheet(
-            "QTableWidget { background-color: rgba(255, 255, 255, 0.50);"
-            " alternate-background-color: rgba(240, 240, 240, 0.50);"
+            "QTableWidget { background-color: rgba(218, 210, 210, 0.50);"
+            " alternate-background-color: rgba(228, 220, 220, 0.45);"
             " gridline-color: rgba(208, 208, 208, 0.50);"
             " border-radius: 8px; }"
         )
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(False)
-        self.workspace_layout.addWidget(self.table_widget)
+        table_container_layout.addWidget(self.table_widget)
+
+        self.workspace_layout.addWidget(self.table_container)
+        self.workspace_hint.setText(self.workspace_hint_default_text)
+        self.workspace_hint.setVisible(True)
 
         layout.addWidget(self.workspace, stretch=1)
 
@@ -668,26 +319,20 @@ class MainWindow(QMainWindow):
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
         self._open_barcode_previews: list[QDialog] = []
+        self._drag_offset = None
         self._drag_handles: set[QWidget] = set()
-        self._drag_offset: QPoint | None = None
-        self._current_table_id: str | None = None
 
         self._install_drag_handle(self.function_bar)
         self._install_drag_handle(self.title_label)
 
         self._configure_menu()
-        self._show_table(HOME_TABLE_ID)
 
     def _configure_menu(self) -> None:
         menu = QMenu(self.menu_button)
         self._apply_menu_styling(menu)
 
         base_de_dados_menu = self._add_submenu(menu, "Base de Dados")
-        self._add_action(
-            base_de_dados_menu,
-            "Atualizar Dados",
-            handler=self._update_database_from_excels,
-        )
+        self._add_action(base_de_dados_menu, "Atualizar Dados")
         self._add_action(
             base_de_dados_menu,
             "Importar Dados",
@@ -796,8 +441,6 @@ class MainWindow(QMainWindow):
     def _show_table(self, table_id: str) -> None:
         """Fetch the configuration for ``table_id`` and display the rows."""
 
-        self._current_table_id = table_id
-
         config = TABLE_CONFIGS.get(table_id)
         if config is None:
             raise ValueError(f"Unknown table identifier: {table_id}")
@@ -822,12 +465,11 @@ class MainWindow(QMainWindow):
         table_kind: str,
         title: str,
     ) -> None:
-        self.table_widget.set_frozen_column(None)
         self.table_widget.clear()
         self.table_widget.setColumnCount(len(columns))
         self.table_widget.setHorizontalHeaderLabels(columns)
+        self.table_widget.setRowCount(len(rows))
 
-        barcode_type_header = "Tipo de Código de Barras"
         barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
         for row_index, row in enumerate(rows):
@@ -842,14 +484,12 @@ class MainWindow(QMainWindow):
 
             for col_index, column in enumerate(columns):
                 if table_kind == "barcodes" and column == "Barcode":
-                    self._set_barcode_cell(row_index, col_index, barcode_value)
-                    continue
-                if table_kind == "barcodes" and column == barcode_type_header:
-                    display_type = barcode_type or "-N/A-"
-                    item = QTableWidgetItem(display_type)
-                    if barcode_type:
-                        item.setToolTip(barcode_type)
-                    self.table_widget.setItem(row_index, col_index, item)
+                    self._set_barcode_cell(
+                        row_index,
+                        col_index,
+                        barcode_value,
+                        barcode_type,
+                    )
                     continue
 
                 value = self._get_row_value(row, column, col_index)
@@ -876,7 +516,6 @@ class MainWindow(QMainWindow):
             self.table_widget.setRowCount(0)
 
         self._configure_header(columns, table_kind)
-        self.table_widget.refresh_frozen_geometry()
         self.table_title.setText(title)
         self.table_container.setVisible(True)
         self.table_widget.setVisible(True)
@@ -919,15 +558,17 @@ class MainWindow(QMainWindow):
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         elif table_kind == "barcodes":
-            barcode_type_header = "Tipo de Código de Barras"
             barcode_index = columns.index("Barcode")
-            barcode_type_index = columns.index(barcode_type_header)
+            char_width = self.table_widget.fontMetrics().horizontalAdvance("0")
+            barcode_width = char_width * BARCODE_DISPLAY_LIMIT + 24
 
             for index, _ in enumerate(columns):
-                if index in {barcode_index, barcode_type_index}:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+                if index == barcode_index:
+                    header.setSectionResizeMode(index, QHeaderView.Fixed)
+                    header.resizeSection(index, barcode_width)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+            header.setStretchLastSection(True)
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
@@ -973,14 +614,26 @@ class MainWindow(QMainWindow):
         return label
 
     def _set_barcode_cell(
-        self, row_index: int, col_index: int, barcode_value: str | None
+        self,
+        row_index: int,
+        col_index: int,
+        barcode_value: str | None,
+        barcode_type: str | None,
     ) -> None:
         display_text = barcode_value or ""
+        tooltip_text = None
+
+        if barcode_value:
+            display_text, tooltip_text = self._truncate_with_tooltip(
+                barcode_value, BARCODE_DISPLAY_LIMIT
+            )
+            if tooltip_text is None:
+                tooltip_text = barcode_value
 
         item = QTableWidgetItem(display_text)
         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        if barcode_value:
-            item.setToolTip(barcode_value)
+        if tooltip_text:
+            item.setToolTip(tooltip_text)
         self.table_widget.setItem(row_index, col_index, item)
 
         container = QWidget(self.table_widget)
@@ -995,8 +648,8 @@ class MainWindow(QMainWindow):
         text_label = QLabel(display_text, container)
         text_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_label.setWordWrap(False)
-        if barcode_value:
-            text_label.setToolTip(barcode_value)
+        if tooltip_text:
+            text_label.setToolTip(tooltip_text)
         layout.addWidget(text_label, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignLeft)
 
         eye_button = QToolButton(container)
@@ -1012,7 +665,7 @@ class MainWindow(QMainWindow):
 
         if barcode_value:
             eye_button.clicked.connect(
-                partial(self._show_barcode_preview, barcode_value)
+                partial(self._show_barcode_preview, barcode_value, barcode_type)
             )
         else:
             eye_button.setEnabled(False)
@@ -1021,7 +674,9 @@ class MainWindow(QMainWindow):
 
         self.table_widget.setCellWidget(row_index, col_index, container)
 
-    def _show_barcode_preview(self, barcode_value: str) -> None:
+    def _show_barcode_preview(
+        self, barcode_value: str, barcode_type: str | None = None
+    ) -> None:
         if not barcode_value:
             QMessageBox.information(
                 self,
@@ -1030,6 +685,7 @@ class MainWindow(QMainWindow):
             )
             return
 
+        resolved_barcode_type = barcode_type or self._infer_barcode_type(barcode_value)
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is None or pixmap.isNull():
             QMessageBox.warning(
@@ -1063,7 +719,39 @@ class MainWindow(QMainWindow):
         preview_label.setPixmap(scaled_pixmap)
         layout.addWidget(preview_label)
 
-        preview.resize(scaled_pixmap.width() + 32, scaled_pixmap.height() + 32)
+        info_row = QWidget(preview)
+        info_layout = QHBoxLayout(info_row)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(8)
+
+        type_label = QLabel(info_row)
+        type_label.setText(
+            f"Tipo: {resolved_barcode_type}" if resolved_barcode_type else "Tipo desconhecido"
+        )
+        type_label.setAlignment(Qt.AlignCenter)
+        type_label.setStyleSheet(
+            "background-color: #1565c0; color: white; padding: 6px 10px;"
+            "border-radius: 4px; font-size: 12px;"
+        )
+        type_label.setMinimumHeight(28)
+        if resolved_barcode_type:
+            type_label.setToolTip(resolved_barcode_type)
+        info_layout.addWidget(type_label, stretch=1)
+
+        printer_label = QLabel(info_row)
+        printer_label.setText("🖨")
+        printer_label.setAlignment(Qt.AlignCenter)
+        printer_label.setStyleSheet(
+            "background-color: #9e9e9e; color: white; padding: 6px 10px;"
+            "border-radius: 4px; font-size: 14px;"
+        )
+        printer_label.setMinimumHeight(28)
+        printer_label.setToolTip("Ações de impressão brevemente disponíveis")
+        info_layout.addWidget(printer_label, stretch=1)
+
+        layout.addWidget(info_row)
+
+        preview.resize(max(scaled_pixmap.width() + 48, preview.sizeHint().width()), preview.sizeHint().height())
         self._open_barcode_previews.append(preview)
 
         def _cleanup_preview(_=None, dialog=preview) -> None:
@@ -1100,23 +788,8 @@ class MainWindow(QMainWindow):
             return None
         return None
 
-    def _update_database_from_excels(self) -> None:
-        """Re-import Excel files and refresh the current table when possible."""
-
-        imported, missing, errors = self._process_incoming_excels()
-        self._notify_import_results(imported, missing, errors)
-
-        if imported:
-            self._refresh_active_table()
-
     def _import_incoming_excels(self) -> None:
         """Import Excel files from ``imports/incoming`` and archive them."""
-
-        imported, missing, errors = self._process_incoming_excels()
-        self._notify_import_results(imported, missing, errors)
-
-    def _process_incoming_excels(self) -> tuple[list[str], list[str], list[str]]:
-        """Load Excel files from ``imports/incoming`` and archive processed ones."""
 
         incoming_dir = Path("imports/incoming")
         processed_dir = Path("imports/processed")
@@ -1156,15 +829,6 @@ class MainWindow(QMainWindow):
                 build_warehouse_articles_from_disp()
             except Exception as exc:  # pragma: no cover - user interaction
                 errors.append(f"WarehouseArticles: {exc}")
-        return imported, missing, errors
-
-    def _notify_import_results(
-        self,
-        imported: list[str],
-        missing: list[str],
-        errors: list[str],
-    ) -> None:
-        """Display a message box summarising the import outcome."""
 
         if errors:
             message = "Ocorreram erros ao importar:\n" + "\n".join(errors)
@@ -1191,15 +855,3 @@ class MainWindow(QMainWindow):
             message_lines.append("\nFicheiros em falta:")
             message_lines.extend(missing)
         QMessageBox.information(self, "Importação concluída", "\n".join(message_lines))
-
-    def _refresh_active_table(self) -> None:
-        """Reload the currently displayed table after an import."""
-
-        if not self._current_table_id:
-            return
-        try:
-            self._show_table(self._current_table_id)
-        except Exception:
-            # Avoid crashing the UI if the refresh fails; the user already
-            # received feedback from the import notification.
-            pass
