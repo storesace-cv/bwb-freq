@@ -214,6 +214,7 @@ class MainWindow(QMainWindow):
         self._barcode_image_max_width: int = 0
         self._barcode_label_entries: list[tuple[int, QLabel]] = []
         self._barcode_image_column: int | None = None
+        self._barcode_image_max_height: int = 75
 
         self._configure_menu()
         self._background_label.resize(self.size())
@@ -485,11 +486,14 @@ class MainWindow(QMainWindow):
             label._orig_pixmap = pixmap  # type: ignore[attr-defined]
             label.setPixmap(pixmap)
             label.setToolTip(barcode_value or "")
-            current_height = self.table_widget.rowHeight(row_index)
-            natural_height = min(pixmap.height(), 120)
-            desired_height = max(natural_height + 16, current_height)
+            natural_height = min(pixmap.height(), self._barcode_image_max_height)
+            desired_height = min(
+                max(natural_height + 16, 32),
+                self._barcode_image_max_height + 16,
+            )
             self.table_widget.setRowHeight(row_index, desired_height)
             label.setMinimumHeight(natural_height)
+            label.setMaximumHeight(self._barcode_image_max_height)
             label.setMinimumWidth(min(pixmap.width(), self.table_widget.columnWidth(col_index) or pixmap.width()))
             self._barcode_label_entries.append((row_index, label))
             width = pixmap.width()
@@ -516,14 +520,22 @@ class MainWindow(QMainWindow):
             if not isinstance(pixmap, QPixmap) or pixmap.isNull():
                 continue
 
-            scaled = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
+            scaled = pixmap.scaled(
+                available_width,
+                self._barcode_image_max_height,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
             label.setPixmap(scaled)
             label.setMinimumWidth(scaled.width())
             label.setMinimumHeight(scaled.height())
+            label.setMaximumHeight(self._barcode_image_max_height)
 
-            desired_height = scaled.height() + 16
-            if self.table_widget.rowHeight(row_index) < desired_height:
-                self.table_widget.setRowHeight(row_index, desired_height)
+            desired_height = min(
+                max(scaled.height() + 16, 32),
+                self._barcode_image_max_height + 16,
+            )
+            self.table_widget.setRowHeight(row_index, desired_height)
 
     def _handle_section_resized(self, logical_index: int, _old_size: int, _new_size: int) -> None:
         if self._barcode_image_column == logical_index:
