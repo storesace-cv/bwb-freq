@@ -79,7 +79,7 @@ PYBIN=".venv/bin/python"
 # +------------------------------------------------------------------------------------------------------------------+
 echo "🧪 A testar wxPython (dry, sem arrancar UI)…"
 : > "$LOGFILE"
-if ! "$PYBIN" - >>"$LOGFILE" 2>&1 <<'PY'
+if "$PYBIN" - >>"$LOGFILE" 2>&1 <<'PY'
 try:
     import wx
 except Exception as exc:
