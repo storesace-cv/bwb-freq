@@ -5,6 +5,13 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 LOGFILE="$ROOT_DIR/launch_debug.log"
 
+# Remover constraints legacy do Qt que pode provocar conflitos durante merges.
+LEGACY_CONSTRAINTS="$ROOT_DIR/constraints-qt.txt"
+if [ -f "$LEGACY_CONSTRAINTS" ]; then
+  echo "🧹 A remover ficheiro legacy constraints-qt.txt (migração para wxPython)…"
+  rm -f "$LEGACY_CONSTRAINTS"
+fi
+
 # +------------------------------------------------------------------------------------------------------------------+
 # |                                      GARANTIR AMBIENTE 3.11 + wxPython                                          |
 # +------------------------------------------------------------------------------------------------------------------+
