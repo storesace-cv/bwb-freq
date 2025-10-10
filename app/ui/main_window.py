@@ -1,19 +1,30 @@
 """Main window for the requisitions UI."""
 
+from io import BytesIO
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
+    QAbstractItemView,
+    QHeaderView,
     QHBoxLayout,
+    QLabel,
     QMainWindow,
     QMenu,
     QMessageBox,
+    QSizePolicy,
+    QTableWidget,
+    QTableWidgetItem,
     QToolButton,
     QVBoxLayout,
     QWidget,
 )
 
-from app.data.db import init_db
+from barcode import get_barcode_class
+from barcode.writer import ImageWriter
+
+from app.data.db import get_connection, init_db
 from app.ui.assets import BACKGROUND_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
 from app.services.importer import (
@@ -101,9 +112,42 @@ class MainWindow(QMainWindow):
         top_row.addSpacing(100)
 
         layout.addLayout(top_row)
-        layout.addStretch(1)
+
+        self.workspace = QWidget(self)
+        ensure_transparent(self.workspace)
+        self.workspace_layout = QVBoxLayout(self.workspace)
+        self.workspace_layout.setContentsMargins(32, 24, 32, 32)
+        self.workspace_layout.setSpacing(16)
+
+        self.workspace_hint_default_text = (
+            "Selecione uma tabela em Tabelas para visualizar os dados."
+        )
+        self.workspace_hint = QLabel(
+            self.workspace_hint_default_text,
+            self.workspace,
+        )
+        self.workspace_hint.setAlignment(Qt.AlignCenter)
+        self.workspace_hint.setStyleSheet("color: #202020; font-size: 16px;")
+        self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
+
+        self.table_widget = QTableWidget(self.workspace)
+        self.table_widget.setVisible(False)
+        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
+        self.table_widget.setSelectionBehavior(QAbstractItemView.SelectRows)
+        self.table_widget.setAlternatingRowColors(True)
+        self.table_widget.setWordWrap(False)
+        self.table_widget.setTextElideMode(Qt.ElideRight)
+        self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.horizontalHeader().setStretchLastSection(False)
+        self.workspace_layout.addWidget(self.table_widget)
+
+        layout.addWidget(self.workspace, stretch=1)
 
         self.setCentralWidget(central)
+
+        self._barcode_pixmap_cache: dict[str, QPixmap] = {}
+        self._barcode_image_max_width: int = 0
 
         self._configure_menu()
         self._background_label.resize(self.size())
@@ -128,7 +172,12 @@ class MainWindow(QMainWindow):
 
         tabelas_menu = menu.addMenu("Tabelas")
         self._apply_menu_styling(tabelas_menu)
-        tabelas_menu.addAction("Tipos Artigos")
+        artigos_action = tabelas_menu.addAction("Artigos")
+        artigos_action.triggered.connect(self._show_netbo_articles)
+        departamentos_action = tabelas_menu.addAction("Departamentos")
+        departamentos_action.triggered.connect(self._show_wharehouses)
+        barcodes_action = tabelas_menu.addAction("Artigos | Códigos de Barras")
+        barcodes_action.triggered.connect(self._show_article_barcodes)
 
         utilitarios_menu = menu.addMenu("Utilitários")
         self._apply_menu_styling(utilitarios_menu)
@@ -156,6 +205,296 @@ class MainWindow(QMainWindow):
         """Apply the shared stylesheet for beige semi-transparent menus."""
 
         menu.setStyleSheet(MENU_STYLESHEET)
+
+    def _show_netbo_articles(self) -> None:
+        """Display NetboArticles table with custom column sizing."""
+
+        columns = (
+            "Codigo",
+            "Produto",
+            "Familia",
+            "SubFamilia",
+            "Unidade",
+            "UnVenda",
+            "UnInventario",
+            "UnProducao",
+        )
+        query = (
+            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
+            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="netbo")
+
+    def _show_wharehouses(self) -> None:
+        """Display Wharehouses table with auto-sized columns."""
+
+        columns = (
+            "Codigo",
+            "Tipo",
+            "Nome",
+            "Nif",
+            "TipoFo",
+            "EmailDoResponsavel",
+        )
+        query = (
+            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="wharehouses")
+
+    def _show_article_barcodes(self) -> None:
+        """Display ArticleBarcodes table with auto-sized columns."""
+
+        columns = (
+            "ArticleFoId",
+            "ArticleName",
+            "Barcode",
+            "UnidadeName",
+            "Código de Barras (Imagem)",
+            "Tipo de Código de Barras",
+        )
+        query = (
+            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
+        )
+        rows = self._fetch_rows(query)
+        self._populate_table(columns, rows, table_kind="barcodes")
+
+    def _fetch_rows(self, query: str) -> list:
+        with get_connection() as conn:
+            return conn.execute(query).fetchall()
+
+    def _populate_table(self, columns: tuple[str, ...], rows: list, *, table_kind: str) -> None:
+        self.table_widget.clear()
+        self.table_widget.setColumnCount(len(columns))
+        self.table_widget.setHorizontalHeaderLabels(columns)
+        self.table_widget.setRowCount(len(rows))
+
+        barcode_image_header = "Código de Barras (Imagem)"
+        barcode_type_header = "Tipo de Código de Barras"
+        barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
+
+        if table_kind == "barcodes":
+            self._barcode_image_max_width = 0
+
+        for row_index, row in enumerate(rows):
+            barcode_value = None
+            if barcode_column_index is not None:
+                barcode_value = self._get_row_value(row, "Barcode", barcode_column_index)
+            barcode_type = (
+                self._infer_barcode_type(barcode_value)
+                if table_kind == "barcodes"
+                else None
+            )
+
+            for col_index, column in enumerate(columns):
+                if table_kind == "barcodes" and column == barcode_image_header:
+                    width = self._set_barcode_cell(row_index, col_index, barcode_value)
+                    if width:
+                        self._barcode_image_max_width = max(
+                            self._barcode_image_max_width, width
+                        )
+                    continue
+                if table_kind == "barcodes" and column == barcode_type_header:
+                    display_type = barcode_type or "-N/A-"
+                    item = QTableWidgetItem(display_type)
+                    if barcode_type:
+                        item.setToolTip(barcode_type)
+                    self.table_widget.setItem(row_index, col_index, item)
+                    continue
+
+                value = self._get_row_value(row, column, col_index)
+                text = "" if value is None else str(value)
+                item = QTableWidgetItem()
+                display_text = text
+
+                if column in {"Familia", "SubFamilia"}:
+                    truncated, tooltip = self._truncate_with_tooltip(text, 20)
+                    display_text = truncated
+                    if tooltip:
+                        item.setToolTip(tooltip)
+                elif column == "Produto":
+                    if text:
+                        item.setToolTip(text)
+                else:
+                    if text and column in {"ArticleName", "Barcode", "UnidadeName"}:
+                        item.setToolTip(text)
+
+                item.setText(display_text)
+                self.table_widget.setItem(row_index, col_index, item)
+
+        if not rows:
+            self.table_widget.setRowCount(0)
+
+        self._configure_header(columns, table_kind)
+        self.table_widget.setVisible(True)
+        if rows:
+            self.workspace_hint.setVisible(False)
+            self.workspace_hint.setText(self.workspace_hint_default_text)
+        else:
+            self.workspace_hint.setText("Não existem registos para mostrar.")
+            self.workspace_hint.setVisible(True)
+
+    def _configure_header(self, columns: tuple[str, ...], table_kind: str) -> None:
+        header = self.table_widget.horizontalHeader()
+        header.setStretchLastSection(False)
+
+        if table_kind == "netbo":
+            product_index = columns.index("Produto")
+            familia_index = columns.index("Familia")
+            subfamilia_index = columns.index("SubFamilia")
+
+            char_width = self.table_widget.fontMetrics().horizontalAdvance("W")
+            familia_width = char_width * 20 + 16
+
+            for index, column in enumerate(columns):
+                if index == product_index:
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                elif index in {familia_index, subfamilia_index}:
+                    header.setSectionResizeMode(index, QHeaderView.Fixed)
+                    header.resizeSection(index, familia_width)
+                else:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        elif table_kind == "barcodes":
+            barcode_image_header = "Código de Barras (Imagem)"
+            barcode_type_header = "Tipo de Código de Barras"
+            barcode_image_index = columns.index(barcode_image_header)
+            barcode_type_index = columns.index(barcode_type_header)
+
+            for index, _ in enumerate(columns):
+                if index == barcode_image_index:
+                    header.setSectionResizeMode(index, QHeaderView.Interactive)
+                    minimum_width = max(self._barcode_image_max_width + 24, 220)
+                    self.table_widget.setColumnMinimumWidth(index, minimum_width)
+                    header.resizeSection(index, minimum_width)
+                elif index == barcode_type_index:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+                else:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        else:
+            for index, _ in enumerate(columns):
+                header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+            header.setStretchLastSection(True)
+
+    def _truncate_with_tooltip(self, text: str, limit: int) -> tuple[str, str | None]:
+        if not text:
+            return "", None
+        if len(text) <= limit:
+            return text, None
+        truncated = text[:limit].rstrip()
+        return f"{truncated}…", text
+
+    def _get_row_value(self, row, column: str, index: int):
+        if hasattr(row, "keys"):
+            try:
+                return row[column]
+            except (KeyError, TypeError):
+                return None
+        if index < len(row):
+            return row[index]
+        return None
+
+    def _infer_barcode_type(self, barcode_value: str | None) -> str | None:
+        if not barcode_value:
+            return None
+
+        digits = barcode_value.strip()
+        if not digits.isdigit():
+            return None
+
+        length = len(digits)
+        if length == 13:
+            return "EAN-13"
+        if length == 12:
+            return "UPC-A"
+        if length == 8:
+            if self._looks_like_upc_e(digits):
+                return "UPC-E"
+            return "EAN-8"
+
+        return None
+
+    def _looks_like_upc_e(self, digits: str) -> bool:
+        if len(digits) != 8 or not digits.isdigit():
+            return False
+        if digits[0] not in {"0", "1"}:
+            return False
+
+        data = digits[1:7]
+        last = data[-1]
+
+        if last in {"0", "1", "2"}:
+            manufacturer = data[:2] + last
+            product = "00" + data[2:5]
+        elif last == "3":
+            manufacturer = data[:3]
+            product = "000" + data[3:5]
+        elif last == "4":
+            manufacturer = data[:4]
+            product = "0000" + data[4]
+        else:
+            manufacturer = data[:5]
+            product = "0000" + last
+
+        return len(manufacturer) == 5 and len(product) == 5
+
+    def _set_barcode_cell(
+        self, row_index: int, col_index: int, barcode_value: str | None
+    ) -> int | None:
+        label = QLabel(self.table_widget)
+        label.setAlignment(Qt.AlignCenter)
+
+        pixmap = self._get_barcode_pixmap(barcode_value)
+        if pixmap is not None:
+            scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
+            label.setPixmap(scaled)
+            label.setToolTip(barcode_value or "")
+            label.setMinimumSize(scaled.size())
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            current_height = self.table_widget.rowHeight(row_index)
+            desired_height = scaled.height() + 8
+            if desired_height > current_height:
+                self.table_widget.setRowHeight(row_index, desired_height)
+            width = scaled.width()
+        else:
+            label.setText("—")
+            if barcode_value:
+                label.setToolTip(barcode_value)
+            width = None
+
+        placeholder = QTableWidgetItem()
+        placeholder.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        placeholder.setText("")
+        self.table_widget.setItem(row_index, col_index, placeholder)
+        self.table_widget.setCellWidget(row_index, col_index, label)
+        return width
+
+    def _get_barcode_pixmap(self, barcode_value: str | None) -> QPixmap | None:
+        if not barcode_value:
+            return None
+        if barcode_value in self._barcode_pixmap_cache:
+            return self._barcode_pixmap_cache[barcode_value]
+
+        try:
+            barcode_class = get_barcode_class("code128")
+            barcode = barcode_class(barcode_value, writer=ImageWriter())
+            buffer = BytesIO()
+            barcode.write(
+                buffer,
+                {
+                    "module_height": 40.0,
+                    "module_width": 0.2,
+                    "quiet_zone": 2.0,
+                    "font_size": 10,
+                },
+            )
+            pixmap = QPixmap()
+            if pixmap.loadFromData(buffer.getvalue()):
+                self._barcode_pixmap_cache[barcode_value] = pixmap
+                return pixmap
+        except Exception:  # pragma: no cover - fallback for invalid barcodes
+            return None
+        return None
 
     def _import_incoming_excels(self) -> None:
         """Import Excel files from ``imports/incoming`` and archive them."""
