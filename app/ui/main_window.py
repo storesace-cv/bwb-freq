@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Callable
 
 from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
@@ -36,6 +36,7 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
+from app.ui.assets import APP_ICON
 from app.utils.barcodes import classify_gs1_barcode
 
 
@@ -143,6 +144,8 @@ class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
         self.setWindowTitle("Requisições Internas — MVP")
+        if APP_ICON.exists():
+            self.setWindowIcon(QIcon(str(APP_ICON)))
         self.setFixedSize(1024, 768)
         self.setStyleSheet(
             "QMainWindow { background-color: #f5f5f5; }"
