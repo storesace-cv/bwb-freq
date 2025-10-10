@@ -51,18 +51,7 @@ CREATE TABLE IF NOT EXISTS ArticleBarcodes (
   Price REAL,
   StoreNames TEXT,
   BrandNames TEXT,
-  ZoneNames TEXT,
-  FOREIGN KEY (ArticleFoId) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE
-);
-
--- Ensure that legacy data does not contain duplicate barcode entries before the
--- unique index below is applied. We keep the first occurrence of each
--- (ArticleFoId, Barcode) pair and discard the remaining duplicates.
-DELETE FROM ArticleBarcodes
-WHERE rowid NOT IN (
-  SELECT MIN(rowid)
-  FROM ArticleBarcodes
-  GROUP BY ArticleFoId, Barcode
+  ZoneNames TEXT
 );
 
 CREATE TABLE IF NOT EXISTS FichasTecnicas (
@@ -72,9 +61,7 @@ CREATE TABLE IF NOT EXISTS FichasTecnicas (
   Unidade TEXT,
   NomeProdVendaGenerico TEXT,
   NomeComponente TEXT,
-  PRIMARY KEY (ProdVendaGenerico, Componente),
-  FOREIGN KEY (ProdVendaGenerico) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE,
-  FOREIGN KEY (Componente) REFERENCES NetboArticles(Codigo) ON DELETE CASCADE
+  PRIMARY KEY (ProdVendaGenerico, Componente)
 );
 
 CREATE TABLE IF NOT EXISTS WarehouseArticles (
@@ -120,5 +107,4 @@ CREATE TABLE IF NOT EXISTS ImportsLog (
 );
 
 CREATE INDEX IF NOT EXISTS idx_articlebarcodes_foid ON ArticleBarcodes(ArticleFoId);
-CREATE UNIQUE INDEX IF NOT EXISTS uq_article_barcodes_article_barcode ON ArticleBarcodes(ArticleFoId, Barcode);
 CREATE INDEX IF NOT EXISTS idx_requisition_lines_req ON RequisitionLines(RequisitionId);

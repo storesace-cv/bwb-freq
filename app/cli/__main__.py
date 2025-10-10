@@ -2,25 +2,17 @@ import argparse, os, sys
 from pathlib import Path
 from app.data.db import init_db, get_connection
 from app.services.importer import (
-    build_warehouse_articles_from_disp,
-    count_duplicate_article_barcodes,
-    import_article_barcodes,
-    import_fichas_tecnicas,
     import_netbo_articles,
     import_wharehouses,
-    remove_duplicate_article_barcodes,
+    import_article_barcodes,
+    import_fichas_tecnicas,
+    build_warehouse_articles_from_disp,
 )
 from app.services.validators import validate_integrity
 from app.services.printer import export_context_json, export_csv_simple
 
 def cmd_import(args):
     init_db()
-    duplicates = count_duplicate_article_barcodes()
-    if duplicates:
-        removed = remove_duplicate_article_barcodes()
-        print(
-            f"[import] Removidos {removed} registos duplicados de códigos de barras antes da importação."
-        )
     if args.articles:
         n = import_netbo_articles(args.articles)
         print(f"[import] NetboArticles: {n} linhas")
