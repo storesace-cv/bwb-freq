@@ -12,6 +12,7 @@ Cada requisição lista os **artigos ativos no armazém**, incluindo **Código**
 - `netbo_articles.xlsx` → tabela `NetboArticles` (Tipo 1 / imutável por UI)
 - `Lojas e Armazens.xlsx` → tabela `Wharehouses` (Tipo 1 / imutável por UI)
 - `article_barcodes.xlsx` → tabela `ArticleBarcodes` (Tipo 1 / imutável por UI)
+- `Fichas Tecnicas.xlsx` → tabela `FichasTecnicas` (Tipo 1 / imutável por UI)
 - **Regras de edição**:
   - Tabelas **Tipo 1** (de origem externa) **não podem ser alteradas** pelos utilizadores; só por **reimportação**.
   - Tabelas **Tipo 2** (criadas por nós) comportam-se “normalmente” (CRUD).

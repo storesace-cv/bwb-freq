@@ -1,6 +1,67 @@
 import re
+from typing import Any
+
 import pandas as pd
+
 from app.data.db import get_connection
+
+
+BARCODE_UNIQUE_INDEX_NAME = "uq_article_barcodes_article_barcode"
+
+
+def _normalize_barcode_value(value: Any) -> Any:
+    if isinstance(value, str):
+        value = value.strip()
+    return value
+
+
+def _dedupe_article_barcodes(conn) -> int:
+    cur = conn.execute(
+        """
+        DELETE FROM ArticleBarcodes
+        WHERE Id NOT IN (
+            SELECT MIN(Id)
+            FROM ArticleBarcodes
+            GROUP BY ArticleFoId, COALESCE(NULLIF(TRIM(Barcode), ''), '')
+        )
+        """
+    )
+    return cur.rowcount or 0
+
+
+def _ensure_barcode_unique_index(conn) -> None:
+    conn.execute(
+        f"CREATE UNIQUE INDEX IF NOT EXISTS {BARCODE_UNIQUE_INDEX_NAME} "
+        "ON ArticleBarcodes(ArticleFoId, Barcode)"
+    )
+
+
+def count_duplicate_article_barcodes() -> int:
+    """Return how many duplicated barcode rows exist (beyond the first entry)."""
+
+    with get_connection() as conn:
+        row = conn.execute(
+            """
+            SELECT COALESCE(SUM(cnt - 1), 0) AS duplicates
+            FROM (
+                SELECT COUNT(*) AS cnt
+                FROM ArticleBarcodes
+                GROUP BY ArticleFoId, COALESCE(NULLIF(TRIM(Barcode), ''), '')
+                HAVING COUNT(*) > 1
+            )
+            """
+        ).fetchone()
+        return int(row["duplicates"] if row is not None else 0)
+
+
+def remove_duplicate_article_barcodes() -> int:
+    """Collapse duplicated barcode rows and enforce the unique index."""
+
+    with get_connection() as conn:
+        removed = _dedupe_article_barcodes(conn)
+        _ensure_barcode_unique_index(conn)
+        conn.commit()
+        return removed
 
 def _norm_bool(v):
     if pd.isna(v):
@@ -83,23 +144,141 @@ def import_wharehouses(xlsx_path: str) -> int:
 def import_article_barcodes(xlsx_path: str) -> int:
     df = pd.read_excel(xlsx_path, dtype=str).fillna("")
     mapping = {
-        "article_fo_id":"ArticleFoId","article_name":"ArticleName","barcode":"Barcode",
-        "unit_id":"UnitId","unidade_name":"UnidadeName","price":"Price",
-        "store_names":"StoreNames","brand_names":"BrandNames","zone_names":"ZoneNames"
+        "article_fo_id": "ArticleFoId",
+        "article_name": "ArticleName",
+        "barcode": "Barcode",
+        "unit_id": "UnitId",
+        "unidade_name": "UnidadeName",
+        "price": "Price",
+        "store_names": "StoreNames",
+        "brand_names": "BrandNames",
+        "zone_names": "ZoneNames",
     }
-    df = df.rename(columns={k:v for k,v in mapping.items() if k in df.columns})
+    df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
 
     with get_connection() as conn:
+        _dedupe_article_barcodes(conn)
+        _ensure_barcode_unique_index(conn)
+
         n = 0
         cols = list(df.columns)
-        placeholders = ",".join([f":{c}" for c in cols]).replace('"', '')  # ensure :col without quotes
+        placeholders = ",".join([f":{c}" for c in cols]).replace('"', "")
+        update_cols = [c for c in cols if c not in {"ArticleFoId", "Barcode"}]
+        if update_cols:
+            update_clause = ", ".join([f"{col}=excluded.{col}" for col in update_cols])
+            statement = (
+                f"INSERT INTO ArticleBarcodes ({','.join(cols)}) VALUES ({placeholders}) "
+                "ON CONFLICT(ArticleFoId, Barcode) DO UPDATE SET "
+                + update_clause
+            )
+        else:
+            statement = (
+                f"INSERT INTO ArticleBarcodes ({','.join(cols)}) VALUES ({placeholders}) "
+                "ON CONFLICT(ArticleFoId, Barcode) DO NOTHING"
+            )
+
         for _, r in df.iterrows():
-            conn.execute(f"INSERT INTO ArticleBarcodes ({','.join(cols)}) VALUES ({placeholders})", dict(r))
+            payload = {}
+            for col in cols:
+                value = r.get(col, None)
+                if isinstance(value, str):
+                    value = value.strip()
+                if col == "Barcode":
+                    value = _normalize_barcode_value(value)
+                payload[col] = value
+            conn.execute(statement, payload)
             n += 1
         conn.execute(
             'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
             "VALUES(datetime('now'), ?, ?, ?, NULL)",
             (xlsx_path, "barcodes", n),
+        )
+        conn.commit()
+        return n
+
+def _parse_quantity(value: Any) -> float | None:
+    if value is None or (isinstance(value, float) and pd.isna(value)):
+        return None
+    if isinstance(value, (int, float)) and not pd.isna(value):
+        return float(value)
+    text = str(value).strip()
+    if not text:
+        return None
+    normalized = text.replace(" ", "").replace(",", ".")
+    try:
+        return float(normalized)
+    except ValueError:
+        return None
+
+
+def import_fichas_tecnicas(xlsx_path: str) -> int:
+    df = pd.read_excel(xlsx_path, dtype=str).fillna("")
+    mapping = {
+        "Prod Venda / Generico": "ProdVendaGenerico",
+        "Componente": "Componente",
+        "Quantidade": "Quantidade",
+        "Unidade": "Unidade",
+        "Nome prod venda / generico": "NomeProdVendaGenerico",
+        "Nome componente": "NomeComponente",
+    }
+    df = df.rename(columns={k: v for k, v in mapping.items() if k in df.columns})
+
+    missing_required = [c for c in ("ProdVendaGenerico", "Componente") if c not in df.columns]
+    if missing_required:
+        raise ValueError(
+            "Ficheiro de fichas técnicas em falta de colunas obrigatórias: "
+            + ", ".join(missing_required)
+        )
+
+    text_columns = [
+        "ProdVendaGenerico",
+        "Componente",
+        "Unidade",
+        "NomeProdVendaGenerico",
+        "NomeComponente",
+    ]
+    for col in text_columns:
+        if col in df.columns:
+            df[col] = df[col].astype(str).str.strip()
+
+    if "Quantidade" in df.columns:
+        df["Quantidade"] = df["Quantidade"].apply(_parse_quantity)
+
+    desired_columns = [
+        "ProdVendaGenerico",
+        "Componente",
+        "Quantidade",
+        "Unidade",
+        "NomeProdVendaGenerico",
+        "NomeComponente",
+    ]
+    columns_present = [c for c in desired_columns if c in df.columns]
+
+    with get_connection() as conn:
+        n = 0
+        placeholders = ",".join([f":{c}" for c in columns_present]).replace('"', "")
+        for _, row in df.iterrows():
+            prod = row.get("ProdVendaGenerico", "").strip()
+            comp = row.get("Componente", "").strip()
+            if not prod or not comp:
+                continue
+            payload = {}
+            for col in columns_present:
+                value = row.get(col, None)
+                if isinstance(value, str):
+                    value = value.strip()
+                if pd.isna(value):
+                    value = None
+                payload[col] = value
+            conn.execute(
+                f"INSERT OR REPLACE INTO FichasTecnicas ({','.join(columns_present)}) VALUES ({placeholders})",
+                payload,
+            )
+            n += 1
+        conn.execute(
+            'INSERT INTO ImportsLog("When", File, Kind, Rows, Notes) '
+            "VALUES(datetime('now'), ?, ?, ?, NULL)",
+            (xlsx_path, "fichas_tecnicas", n),
         )
         conn.commit()
         return n

@@ -9,6 +9,7 @@ def validate_integrity() -> dict:
             "NetboArticles": count("NetboArticles"),
             "Wharehouses": count("Wharehouses"),
             "ArticleBarcodes": count("ArticleBarcodes"),
+            "FichasTecnicas": count("FichasTecnicas"),
             "WarehouseArticles": count("WarehouseArticles"),
         }
         # WarehouseArticles com warehouse desconhecido
@@ -27,4 +28,24 @@ def validate_integrity() -> dict:
         """).fetchone()[0]
         if orf:
             rep["warnings"].append(f"ArticleBarcodes órfãos (ArticleFoId sem match): {orf}")
+
+        fichas_missing_prod = conn.execute("""
+            SELECT COUNT(*) FROM FichasTecnicas ft
+            LEFT JOIN NetboArticles n ON n.Codigo = ft.ProdVendaGenerico
+            WHERE n.Codigo IS NULL
+        """).fetchone()[0]
+        if fichas_missing_prod:
+            rep["warnings"].append(
+                f"FichasTecnicas órfãs (ProdVendaGenerico sem artigo): {fichas_missing_prod}"
+            )
+
+        fichas_missing_comp = conn.execute("""
+            SELECT COUNT(*) FROM FichasTecnicas ft
+            LEFT JOIN NetboArticles n ON n.Codigo = ft.Componente
+            WHERE n.Codigo IS NULL
+        """).fetchone()[0]
+        if fichas_missing_comp:
+            rep["warnings"].append(
+                f"FichasTecnicas com componente desconhecido: {fichas_missing_comp}"
+            )
     return rep
