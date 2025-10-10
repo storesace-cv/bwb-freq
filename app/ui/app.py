@@ -113,14 +113,18 @@ class FrequencyApp(wx.App):
             self._show_main_window()
 
     def _show_main_window(self) -> None:
-        if self._splash is not None:
-            self._splash.Destroy()
-            self._splash = None
-
-        if self._main_window is not None:
+        main_window = self._main_window
+        if main_window is not None:
             _debug_log("A abrir a janela principal.")
-            self._main_window.Centre()
-            self._main_window.Show()
+            main_window.Centre()
+            main_window.Show()
+            if hasattr(main_window, "Raise"):
+                main_window.Raise()
+
+        splash = self._splash
+        self._splash = None
+        if splash is not None and not splash.IsBeingDeleted():
+            splash.Destroy()
 
 
 def run() -> int:

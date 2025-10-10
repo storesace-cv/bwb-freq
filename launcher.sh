@@ -156,5 +156,16 @@ print("SMOKE_OK")
 PY
 
 echo "✅ Ambiente pronto."
-# echo "🚀 A iniciar aplicação…"
-# python -m app
+
+if [ "${FREQ_SKIP_GUI:-0}" = "1" ]; then
+  echo "ℹ️ Arranque automático da GUI desactivado (FREQ_SKIP_GUI=1)."
+  exit 0
+fi
+
+if [ "$#" -gt 0 ]; then
+  echo "🚀 A iniciar comando personalizado: $*"
+  exec "$@"
+else
+  echo "🚀 A iniciar aplicação gráfica…"
+  exec python -m app.ui
+fi
