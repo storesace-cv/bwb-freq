@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import QEvent, Qt
 from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -147,10 +147,19 @@ class MainWindow(QMainWindow):
         if APP_ICON.exists():
             self.setWindowIcon(QIcon(str(APP_ICON)))
         self.setFixedSize(1024, 768)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet(
             "QMainWindow {"
             "    background-color: rgba(245, 245, 245, 0.10);"
+            "}"
+            "#function-bar {"
+            "    background-color: rgba(245, 245, 245, 0.10);"
+            "}"
+            "#function-bar QLabel {"
+            "    color: #202020;"
+            "    font-size: 18px;"
+            "    font-weight: 600;"
             "}"
             "#central-widget {"
             "    background-color: rgba(255, 255, 255, 0.10);"
@@ -172,11 +181,20 @@ class MainWindow(QMainWindow):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
 
-        top_row = QHBoxLayout()
-        top_row.setContentsMargins(0, 0, 0, 0)
-        top_row.addStretch()
+        self.function_bar = QWidget(self)
+        self.function_bar.setObjectName("function-bar")
+        self.function_bar.setAttribute(Qt.WA_StyledBackground, True)
+        self.function_bar.setAutoFillBackground(False)
+        function_layout = QHBoxLayout(self.function_bar)
+        function_layout.setContentsMargins(24, 12, 24, 12)
+        function_layout.setSpacing(12)
 
-        self.menu_button = QToolButton(self)
+        self.title_label = QLabel("Requisições Internas", self.function_bar)
+        self.title_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        function_layout.addWidget(self.title_label)
+        function_layout.addStretch()
+
+        self.menu_button = QToolButton(self.function_bar)
         self.menu_button.setText("Menu")
         self.menu_button.setPopupMode(QToolButton.InstantPopup)
         size_hint = self.menu_button.sizeHint()
@@ -188,10 +206,21 @@ class MainWindow(QMainWindow):
         self.menu_button.setStyleSheet(
             "QToolButton { font-size: 16px; padding: 6px 18px; border: none; }"
         )
-        top_row.addWidget(self.menu_button)
-        top_row.addSpacing(100)
+        function_layout.addWidget(self.menu_button)
 
-        layout.addLayout(top_row)
+        self.close_button = QToolButton(self.function_bar)
+        self.close_button.setText("✕")
+        self.close_button.setAutoRaise(True)
+        self.close_button.setToolTip("Sair da aplicação")
+        self.close_button.setCursor(Qt.PointingHandCursor)
+        self.close_button.setStyleSheet(
+            "QToolButton { font-size: 16px; padding: 6px 12px; border: none; }"
+            "QToolButton:hover { color: #c62828; }"
+        )
+        self.close_button.clicked.connect(self.close)
+        function_layout.addWidget(self.close_button)
+
+        layout.addWidget(self.function_bar)
 
         self.workspace = QWidget(self)
         self.workspace.setAttribute(Qt.WA_StyledBackground, True)
@@ -200,15 +229,11 @@ class MainWindow(QMainWindow):
         self.workspace_layout.setContentsMargins(32, 24, 32, 32)
         self.workspace_layout.setSpacing(16)
 
-        self.workspace_hint_default_text = (
-            "Selecione uma tabela em Tabelas para visualizar os dados."
-        )
-        self.workspace_hint = QLabel(
-            self.workspace_hint_default_text,
-            self.workspace,
-        )
+        self.workspace_hint_default_text = "Selecione uma tabela em Tabelas para visualizar os dados."
+        self.workspace_hint = QLabel("", self.workspace)
         self.workspace_hint.setAlignment(Qt.AlignCenter)
         self.workspace_hint.setStyleSheet("color: #202020; font-size: 16px;")
+        self.workspace_hint.setVisible(False)
         self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
 
         self.table_widget = QTableWidget(self.workspace)
@@ -233,6 +258,11 @@ class MainWindow(QMainWindow):
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
         self._open_barcode_previews: list[QDialog] = []
+        self._drag_offset = None
+        self._drag_handles: set[QWidget] = set()
+
+        self._install_drag_handle(self.function_bar)
+        self._install_drag_handle(self.title_label)
 
         self._configure_menu()
 
@@ -283,6 +313,9 @@ class MainWindow(QMainWindow):
 
         self._add_submenu(menu, "Configurações")
 
+        menu.addSeparator()
+        self._add_action(menu, "Sair", handler=self.close)
+
         parametrizacoes_menu = self._add_submenu(menu, "Parametrizações")
         integracao_menu = self._add_submenu(parametrizacoes_menu, "Integração")
         self._add_action(integracao_menu, "NETbo (Excel)")
@@ -292,12 +325,35 @@ class MainWindow(QMainWindow):
 
         self.menu_button.setMenu(menu)
 
+    def _install_drag_handle(self, widget: QWidget) -> None:
+        """Allow ``widget`` to act as a draggable area for the frameless window."""
+
+        self._drag_handles.add(widget)
+        widget.installEventFilter(self)
+
     def _add_submenu(self, parent: QMenu, title: str) -> QMenu:
         """Create a submenu and ensure the shared style is applied."""
 
         submenu = parent.addMenu(title)
         self._apply_menu_styling(submenu)
         return submenu
+
+    def eventFilter(self, obj, event):  # type: ignore[override]
+        if obj in self._drag_handles:
+            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
+                self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
+                event.accept()
+                return True
+            if event.type() == QEvent.MouseMove and event.buttons() & Qt.LeftButton:
+                if self._drag_offset is not None:
+                    self.move(event.globalPosition().toPoint() - self._drag_offset)
+                    event.accept()
+                    return True
+            if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
+                self._drag_offset = None
+                event.accept()
+                return True
+        return super().eventFilter(obj, event)
 
     def _add_action(
         self, menu: QMenu, title: str, *, handler: Callable[[], None] | None = None
