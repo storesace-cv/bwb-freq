@@ -148,11 +148,11 @@ class MainWindow(QMainWindow):
             self.setWindowIcon(QIcon(str(APP_ICON)))
         self.setFixedSize(1024, 768)
         self.setStyleSheet(
-            "QMainWindow { background-color: rgba(245, 245, 245, 242); }"
-            "#central-widget { background-color: rgba(255, 255, 255, 242); }"
+            "QMainWindow { background-color: rgba(245, 245, 245, 0.95); }"
+            "#central-widget { background-color: rgba(255, 255, 255, 0.95); }"
             "QTableWidget {"
-            "    background-color: rgba(255, 255, 255, 242);"
-            "    alternate-background-color: rgba(240, 240, 240, 242);"
+            "    background-color: rgba(255, 255, 255, 0.95);"
+            "    alternate-background-color: rgba(240, 240, 240, 0.95);"
             "    gridline-color: #d0d0d0;"
             "}"
         )
