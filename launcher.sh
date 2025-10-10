@@ -33,8 +33,14 @@ ensure_env() {
   . ".venv/bin/activate"
   python -m pip install -q --upgrade pip setuptools wheel
 
-  CONSTR=".venv/.constraints-qt.txt"
-  printf '%s\n%s\n' "PySide6==6.7.3" "shiboken6==6.7.3" > "$CONSTR"
+  CONSTR="$ROOT_DIR/constraints-qt.txt"
+  if [ ! -f "$CONSTR" ]; then
+    echo "❌ Ficheiro constraints-qt.txt não encontrado no diretório do projeto."
+    echo "   Cria-o com o seguinte conteúdo:"
+    echo "   PySide6==6.7.3"
+    echo "   shiboken6==6.7.3"
+    exit 1
+  fi
 
   need_install=0
   python - <<'PY' || need_install=1
@@ -47,7 +53,7 @@ except Exception:
 PY
 
   if [ "$need_install" -ne 0 ] || [ ! -f ".venv/.deps.ok" ] || [ "requirements.txt" -nt ".venv/.deps.ok" ]; then
-    echo "📦 A instalar dependências do projeto (requirements.txt + constraints)…"
+    echo "📦 A instalar dependências do projeto (requirements.txt + constraints-qt.txt)…"
     pip cache purge >/dev/null 2>&1 || true
     if ! pip install --no-cache-dir -r requirements.txt -c "$CONSTR" >>"$LOGFILE" 2>&1; then
       echo "❌ Falha a instalar dependências. A sair sem arrancar GUI."
