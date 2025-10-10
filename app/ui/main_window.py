@@ -321,6 +321,7 @@ class MainWindow(QMainWindow):
         self._open_barcode_previews: list[QDialog] = []
         self._drag_offset = None
         self._drag_handles: set[QWidget] = set()
+        self._current_table_id: str | None = None
 
         self._install_drag_handle(self.function_bar)
         self._install_drag_handle(self.title_label)
@@ -332,7 +333,11 @@ class MainWindow(QMainWindow):
         self._apply_menu_styling(menu)
 
         base_de_dados_menu = self._add_submenu(menu, "Base de Dados")
-        self._add_action(base_de_dados_menu, "Atualizar Dados")
+        self._add_action(
+            base_de_dados_menu,
+            "Atualizar Dados",
+            handler=self._update_database_from_excels,
+        )
         self._add_action(
             base_de_dados_menu,
             "Importar Dados",
@@ -440,6 +445,8 @@ class MainWindow(QMainWindow):
 
     def _show_table(self, table_id: str) -> None:
         """Fetch the configuration for ``table_id`` and display the rows."""
+
+        self._current_table_id = table_id
 
         config = TABLE_CONFIGS.get(table_id)
         if config is None:
@@ -788,8 +795,23 @@ class MainWindow(QMainWindow):
             return None
         return None
 
+    def _update_database_from_excels(self) -> None:
+        """Re-import Excel files and refresh the current table when possible."""
+
+        imported, missing, errors = self._process_incoming_excels()
+        self._notify_import_results(imported, missing, errors)
+
+        if imported:
+            self._refresh_active_table()
+
     def _import_incoming_excels(self) -> None:
         """Import Excel files from ``imports/incoming`` and archive them."""
+
+        imported, missing, errors = self._process_incoming_excels()
+        self._notify_import_results(imported, missing, errors)
+
+    def _process_incoming_excels(self) -> tuple[list[str], list[str], list[str]]:
+        """Load Excel files from ``imports/incoming`` and archive processed ones."""
 
         incoming_dir = Path("imports/incoming")
         processed_dir = Path("imports/processed")
@@ -829,6 +851,15 @@ class MainWindow(QMainWindow):
                 build_warehouse_articles_from_disp()
             except Exception as exc:  # pragma: no cover - user interaction
                 errors.append(f"WarehouseArticles: {exc}")
+        return imported, missing, errors
+
+    def _notify_import_results(
+        self,
+        imported: list[str],
+        missing: list[str],
+        errors: list[str],
+    ) -> None:
+        """Display a message box summarising the import outcome."""
 
         if errors:
             message = "Ocorreram erros ao importar:\n" + "\n".join(errors)
@@ -855,3 +886,15 @@ class MainWindow(QMainWindow):
             message_lines.append("\nFicheiros em falta:")
             message_lines.extend(missing)
         QMessageBox.information(self, "Importação concluída", "\n".join(message_lines))
+
+    def _refresh_active_table(self) -> None:
+        """Reload the currently displayed table after an import."""
+
+        if not self._current_table_id:
+            return
+        try:
+            self._show_table(self._current_table_id)
+        except Exception:
+            # Avoid crashing the UI if the refresh fails; the user already
+            # received feedback from the import notification.
+            pass
