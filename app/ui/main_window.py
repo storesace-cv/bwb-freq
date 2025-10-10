@@ -6,12 +6,13 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable, Iterable
 
-from PySide6.QtCore import Qt
-from PySide6.QtGui import QPixmap
+from PySide6.QtCore import QEvent, QPoint, Qt
+from PySide6.QtGui import QIcon, QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
     QGridLayout,
+    QFrame,
     QHeaderView,
     QHBoxLayout,
     QLabel,
@@ -667,6 +668,9 @@ class MainWindow(QMainWindow):
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
         self._open_barcode_previews: list[QDialog] = []
+        self._drag_handles: set[QWidget] = set()
+        self._drag_offset: QPoint | None = None
+        self._current_table_id: str | None = None
 
         self._install_drag_handle(self.function_bar)
         self._install_drag_handle(self.title_label)
