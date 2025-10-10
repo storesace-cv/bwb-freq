@@ -1,8 +1,10 @@
 """Main window for the requisitions UI."""
 
+from io import BytesIO
 from pathlib import Path
 
 from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QHeaderView,
@@ -17,6 +19,9 @@ from PySide6.QtWidgets import (
     QVBoxLayout,
     QWidget,
 )
+
+from barcode import get_barcode_class
+from barcode.writer import ImageWriter
 
 from app.data.db import get_connection, init_db
 from app.ui.assets import BACKGROUND_IMAGE
@@ -140,6 +145,8 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        self._barcode_pixmap_cache: dict[str, QPixmap] = {}
+
         self._configure_menu()
         self._background_label.resize(self.size())
 
@@ -242,6 +249,7 @@ class MainWindow(QMainWindow):
             "ArticleName",
             "Barcode",
             "UnidadeName",
+            "Código de Barras (Imagem)",
         )
         query = (
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
@@ -259,9 +267,20 @@ class MainWindow(QMainWindow):
         self.table_widget.setHorizontalHeaderLabels(columns)
         self.table_widget.setRowCount(len(rows))
 
+        barcode_image_header = "Código de Barras (Imagem)"
+        barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
+
         for row_index, row in enumerate(rows):
+            barcode_value = None
+            if barcode_column_index is not None:
+                barcode_value = self._get_row_value(row, "Barcode", barcode_column_index)
+
             for col_index, column in enumerate(columns):
-                value = row[column] if isinstance(row, dict) or hasattr(row, "keys") else row[col_index]
+                if table_kind == "barcodes" and column == barcode_image_header:
+                    self._set_barcode_cell(row_index, col_index, barcode_value)
+                    continue
+
+                value = self._get_row_value(row, column, col_index)
                 text = "" if value is None else str(value)
                 item = QTableWidgetItem()
                 display_text = text
@@ -325,6 +344,69 @@ class MainWindow(QMainWindow):
             return text, None
         truncated = text[:limit].rstrip()
         return f"{truncated}…", text
+
+    def _get_row_value(self, row, column: str, index: int):
+        if hasattr(row, "keys"):
+            try:
+                return row[column]
+            except (KeyError, TypeError):
+                return None
+        if index < len(row):
+            return row[index]
+        return None
+
+    def _set_barcode_cell(
+        self, row_index: int, col_index: int, barcode_value: str | None
+    ) -> None:
+        label = QLabel(self.table_widget)
+        label.setAlignment(Qt.AlignCenter)
+
+        pixmap = self._get_barcode_pixmap(barcode_value)
+        if pixmap is not None:
+            scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
+            label.setPixmap(scaled)
+            label.setToolTip(barcode_value or "")
+            current_height = self.table_widget.rowHeight(row_index)
+            desired_height = scaled.height() + 8
+            if desired_height > current_height:
+                self.table_widget.setRowHeight(row_index, desired_height)
+        else:
+            label.setText("—")
+            if barcode_value:
+                label.setToolTip(barcode_value)
+
+        placeholder = QTableWidgetItem()
+        placeholder.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
+        placeholder.setText("")
+        self.table_widget.setItem(row_index, col_index, placeholder)
+        self.table_widget.setCellWidget(row_index, col_index, label)
+
+    def _get_barcode_pixmap(self, barcode_value: str | None) -> QPixmap | None:
+        if not barcode_value:
+            return None
+        if barcode_value in self._barcode_pixmap_cache:
+            return self._barcode_pixmap_cache[barcode_value]
+
+        try:
+            barcode_class = get_barcode_class("code128")
+            barcode = barcode_class(barcode_value, writer=ImageWriter())
+            buffer = BytesIO()
+            barcode.write(
+                buffer,
+                {
+                    "module_height": 40.0,
+                    "module_width": 0.2,
+                    "quiet_zone": 2.0,
+                    "font_size": 10,
+                },
+            )
+            pixmap = QPixmap()
+            if pixmap.loadFromData(buffer.getvalue()):
+                self._barcode_pixmap_cache[barcode_value] = pixmap
+                return pixmap
+        except Exception:  # pragma: no cover - fallback for invalid barcodes
+            return None
+        return None
 
     def _import_incoming_excels(self) -> None:
         """Import Excel files from ``imports/incoming`` and archive them."""
