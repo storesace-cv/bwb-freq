@@ -18,6 +18,7 @@ class SplashScreen(wx.Frame):
 
         self._callback = on_click
         self._is_available = False
+        self._dismissed = False
 
         panel = wx.Panel(self)
         ensure_transparent(panel)
@@ -86,8 +87,17 @@ class SplashScreen(wx.Frame):
             event.Skip()
 
     def _invoke_callback(self) -> None:
+        if self._dismissed:
+            return
+
+        self._dismissed = True
         self.Hide()
-        try:
-            self._callback()
-        finally:
-            self.Destroy()
+
+        def _finalise() -> None:
+            try:
+                self._callback()
+            finally:
+                if not self.IsBeingDeleted():
+                    self.Destroy()
+
+        wx.CallAfter(_finalise)
