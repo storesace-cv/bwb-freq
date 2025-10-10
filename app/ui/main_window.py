@@ -400,7 +400,10 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "    JOIN NetboArticles AS generic ON generic.Codigo = ft.ProdVendaGenerico "
             "    WHERE IFNULL(generic.Generico, 0) = 1"
             ") "
-            "ORDER BY ab.ArticleName COLLATE NOCASE"
+            "ORDER BY "
+            "    na.Familia COLLATE NOCASE, "
+            "    na.SubFamilia COLLATE NOCASE, "
+            "    ab.ArticleName COLLATE NOCASE"
         ),
         table_kind="barcodes",
     ),
@@ -822,6 +825,7 @@ class MainWindow(QMainWindow):
         table_kind: str,
         title: str,
     ) -> None:
+        self.table_widget.set_frozen_column(None)
         self.table_widget.clear()
         self.table_widget.setColumnCount(len(columns))
         self.table_widget.setHorizontalHeaderLabels(columns)
