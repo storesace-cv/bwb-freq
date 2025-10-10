@@ -106,7 +106,6 @@ mods = [
     "pandas",
     "openpyxl",
     "dotenv",           # python-dotenv
-    "pytest",
     "barcode",          # python-barcode
     "PIL",              # Pillow
     "wx"                # wxPython
@@ -118,8 +117,11 @@ for m in mods:
     except Exception as e:
         bad.append((m, str(e)))
 
+if importlib.util.find_spec("pytest") is None:
+    bad.append(("pytest", "module not found"))
+
 if bad:
-    print("ERRO: Falha ao importar módulos:", bad, file=sys.stderr)
+    print("ERRO: Falha ao validar módulos:", bad, file=sys.stderr)
     sys.exit(2)
 
 project_root = pathlib.Path(os.environ.get("FREQ_PROJECT_ROOT", "")).resolve()
