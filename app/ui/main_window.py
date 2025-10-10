@@ -157,10 +157,10 @@ class MainWindow(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet(
             "QMainWindow {"
-            "    background-color: rgba(245, 245, 245, 0.15);"
+            "    background-color: rgba(245, 245, 245, 0.25);"
             "}"
             "#function-bar {"
-            "    background-color: rgba(245, 245, 245, 0.15);"
+            "    background-color: rgba(245, 245, 245, 0.25);"
             "}"
             "#function-bar QLabel {"
             "    color: #202020;"
@@ -168,11 +168,11 @@ class MainWindow(QMainWindow):
             "    font-weight: 600;"
             "}"
             "#central-widget {"
-            "    background-color: rgba(255, 255, 255, 0.15);"
+            "    background-color: rgba(255, 255, 255, 0.25);"
             "}"
             "QTableWidget {"
-            "    background-color: rgba(255, 255, 255, 0.15);"
-            "    alternate-background-color: rgba(240, 240, 240, 0.15);"
+            "    background-color: rgba(255, 255, 255, 0.25);"
+            "    alternate-background-color: rgba(240, 240, 240, 0.25);"
             "    gridline-color: rgba(208, 208, 208, 0.50);"
             "}"
         )
