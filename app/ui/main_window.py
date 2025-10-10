@@ -1,9 +1,12 @@
 """Main window for the requisitions UI."""
 
+from dataclasses import dataclass
+from functools import partial
 from io import BytesIO
 from pathlib import Path
+from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -33,6 +36,64 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
+
+
+@dataclass(frozen=True)
+class TableDisplayConfig:
+    """Immutable configuration describing how to render a database table."""
+
+    columns: tuple[str, ...]
+    query: str
+    table_kind: str
+
+
+TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
+    "netbo": TableDisplayConfig(
+        columns=(
+            "Codigo",
+            "Produto",
+            "Familia",
+            "SubFamilia",
+            "Unidade",
+            "UnVenda",
+            "UnInventario",
+            "UnProducao",
+        ),
+        query=(
+            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
+            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
+        ),
+        table_kind="netbo",
+    ),
+    "wharehouses": TableDisplayConfig(
+        columns=(
+            "Codigo",
+            "Tipo",
+            "Nome",
+            "Nif",
+            "TipoFo",
+            "EmailDoResponsavel",
+        ),
+        query=(
+            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
+        ),
+        table_kind="wharehouses",
+    ),
+    "barcodes": TableDisplayConfig(
+        columns=(
+            "ArticleFoId",
+            "ArticleName",
+            "Barcode",
+            "UnidadeName",
+            "Código de Barras (Imagem)",
+            "Tipo de Código de Barras",
+        ),
+        query=(
+            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
+        ),
+        table_kind="barcodes",
+    ),
+}
 
 
 MENU_STYLESHEET = """
@@ -164,105 +225,91 @@ class MainWindow(QMainWindow):
         menu = QMenu(self.menu_button)
         self._apply_menu_styling(menu)
 
-        base_de_dados_menu = menu.addMenu("Base de Dados")
-        self._apply_menu_styling(base_de_dados_menu)
-        base_de_dados_menu.addAction("Atualizar Dados")
-        importar_dados_action = base_de_dados_menu.addAction("Importar Dados")
-        importar_dados_action.triggered.connect(self._import_incoming_excels)
-        seguranca_menu = base_de_dados_menu.addMenu("Segurança")
-        self._apply_menu_styling(seguranca_menu)
-        seguranca_menu.addAction("Segurança")
-        seguranca_menu.addAction("Reposição")
+        base_de_dados_menu = self._add_submenu(menu, "Base de Dados")
+        self._add_action(base_de_dados_menu, "Atualizar Dados")
+        self._add_action(
+            base_de_dados_menu,
+            "Importar Dados",
+            handler=self._import_incoming_excels,
+        )
+        seguranca_menu = self._add_submenu(base_de_dados_menu, "Segurança")
+        self._add_action(seguranca_menu, "Segurança")
+        self._add_action(seguranca_menu, "Reposição")
 
-        tabelas_menu = menu.addMenu("Tabelas")
-        self._apply_menu_styling(tabelas_menu)
-        artigos_action = tabelas_menu.addAction("Artigos")
-        artigos_action.triggered.connect(self._show_netbo_articles)
-        departamentos_action = tabelas_menu.addAction("Departamentos")
-        departamentos_action.triggered.connect(self._show_wharehouses)
-        barcodes_action = tabelas_menu.addAction("Artigos | Códigos de Barras")
-        barcodes_action.triggered.connect(self._show_article_barcodes)
+        tabelas_menu = self._add_submenu(menu, "Tabelas")
+        self._add_action(
+            tabelas_menu,
+            "Artigos",
+            handler=partial(self._show_table, "netbo"),
+        )
+        self._add_action(
+            tabelas_menu,
+            "Departamentos",
+            handler=partial(self._show_table, "wharehouses"),
+        )
+        self._add_action(
+            tabelas_menu,
+            "Artigos | Códigos de Barras",
+            handler=partial(self._show_table, "barcodes"),
+        )
 
-        utilitarios_menu = menu.addMenu("Utilitários")
-        self._apply_menu_styling(utilitarios_menu)
-        gestao_documentos_menu = utilitarios_menu.addMenu("Gestão de Documentos")
-        self._apply_menu_styling(gestao_documentos_menu)
-        gestao_documentos_menu.addAction("Editor de Documentos")
-        gestao_documentos_menu.addAction("Modelos Activos")
-        gestao_documentos_menu.addAction("Actualizar Documentos")
+        utilitarios_menu = self._add_submenu(menu, "Utilitários")
+        gestao_documentos_menu = self._add_submenu(
+            utilitarios_menu, "Gestão de Documentos"
+        )
+        self._add_action(gestao_documentos_menu, "Editor de Documentos")
+        self._add_action(gestao_documentos_menu, "Modelos Activos")
+        self._add_action(gestao_documentos_menu, "Actualizar Documentos")
 
-        configuracoes_menu = menu.addMenu("Configurações")
-        self._apply_menu_styling(configuracoes_menu)
+        self._add_submenu(menu, "Configurações")
 
-        parametrizacoes_menu = menu.addMenu("Parametrizações")
-        self._apply_menu_styling(parametrizacoes_menu)
-        integracao_menu = parametrizacoes_menu.addMenu("Integração")
-        self._apply_menu_styling(integracao_menu)
-        integracao_menu.addAction("NETbo (Excel)")
-        integracao_menu.addAction("NETbo (API)")
-        integracao_menu.addAction("StoresAce (Excel)")
-        parametrizacoes_menu.addAction("Moeda")
+        parametrizacoes_menu = self._add_submenu(menu, "Parametrizações")
+        integracao_menu = self._add_submenu(parametrizacoes_menu, "Integração")
+        self._add_action(integracao_menu, "NETbo (Excel)")
+        self._add_action(integracao_menu, "NETbo (API)")
+        self._add_action(integracao_menu, "StoresAce (Excel)")
+        self._add_action(parametrizacoes_menu, "Moeda")
 
         self.menu_button.setMenu(menu)
+
+    def _add_submenu(self, parent: QMenu, title: str) -> QMenu:
+        """Create a submenu and ensure the shared style is applied."""
+
+        submenu = parent.addMenu(title)
+        self._apply_menu_styling(submenu)
+        return submenu
+
+    def _add_action(
+        self, menu: QMenu, title: str, *, handler: Callable[[], None] | None = None
+    ):
+        """Create an action and connect it to ``handler`` when provided."""
+
+        action = menu.addAction(title)
+        if handler is not None:
+            action.triggered.connect(partial(self._invoke_action_handler, handler))
+        return action
+
+    def _invoke_action_handler(
+        self, handler: Callable[[], None], _checked: bool = False
+    ) -> None:
+        """Invoke ``handler`` ignoring the checked state from Qt signals."""
+
+        handler()
 
     def _apply_menu_styling(self, menu: QMenu) -> None:
         """Apply the shared stylesheet for beige semi-transparent menus."""
 
         menu.setStyleSheet(MENU_STYLESHEET)
 
-    def _show_netbo_articles(self) -> None:
-        """Display NetboArticles table with custom column sizing."""
+    def _show_table(self, table_id: str) -> None:
+        """Fetch the configuration for ``table_id`` and display the rows."""
 
-        columns = (
-            "Codigo",
-            "Produto",
-            "Familia",
-            "SubFamilia",
-            "Unidade",
-            "UnVenda",
-            "UnInventario",
-            "UnProducao",
-        )
-        query = (
-            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
-            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
-        )
-        rows = self._fetch_rows(query)
-        self._populate_table(columns, rows, table_kind="netbo")
+        config = TABLE_CONFIGS.get(table_id)
+        if config is None:
+            raise ValueError(f"Unknown table identifier: {table_id}")
 
-    def _show_wharehouses(self) -> None:
-        """Display Wharehouses table with auto-sized columns."""
-
-        columns = (
-            "Codigo",
-            "Tipo",
-            "Nome",
-            "Nif",
-            "TipoFo",
-            "EmailDoResponsavel",
-        )
-        query = (
-            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
-        )
-        rows = self._fetch_rows(query)
-        self._populate_table(columns, rows, table_kind="wharehouses")
-
-    def _show_article_barcodes(self) -> None:
-        """Display ArticleBarcodes table with auto-sized columns."""
-
-        columns = (
-            "ArticleFoId",
-            "ArticleName",
-            "Barcode",
-            "UnidadeName",
-            "Código de Barras (Imagem)",
-            "Tipo de Código de Barras",
-        )
-        query = (
-            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
-        )
-        rows = self._fetch_rows(query)
-        self._populate_table(columns, rows, table_kind="barcodes")
+        rows = self._fetch_rows(config.query)
+        self._populate_table(config.columns, rows, table_kind=config.table_kind)
 
     def _fetch_rows(self, query: str) -> list:
         with get_connection() as conn:
@@ -334,6 +381,7 @@ class MainWindow(QMainWindow):
 
         self._configure_header(columns, table_kind)
         self.table_widget.setVisible(True)
+        self.table_widget.viewport().update()
         if rows:
             self.workspace_hint.setVisible(False)
             self.workspace_hint.setText(self.workspace_hint_default_text)
@@ -369,16 +417,16 @@ class MainWindow(QMainWindow):
 
             for index, _ in enumerate(columns):
                 if index == barcode_image_index:
-                    header.setSectionResizeMode(index, QHeaderView.Interactive)
-                    minimum_width = max(self._barcode_image_max_width + 24, 220)
-                    self.table_widget.setColumnMinimumWidth(index, minimum_width)
-                    header.resizeSection(index, minimum_width)
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                    desired_width = max(self._barcode_image_max_width + 24, 220)
+                    header.resizeSection(index, desired_width)
                 elif index == barcode_type_index:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
             self._barcode_image_column = barcode_image_index
             self._resize_barcode_images(barcode_image_index)
+            QTimer.singleShot(0, lambda: self._resize_barcode_images(barcode_image_index))
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
@@ -456,18 +504,17 @@ class MainWindow(QMainWindow):
 
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is not None:
-            scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
-            label.setPixmap(scaled)
-            label.setToolTip(barcode_value or "")
-            label.setMinimumHeight(scaled.height())
-            label.setMinimumWidth(scaled.width())
             label._orig_pixmap = pixmap  # type: ignore[attr-defined]
-            self._barcode_label_entries.append((row_index, label))
+            label.setPixmap(pixmap)
+            label.setToolTip(barcode_value or "")
             current_height = self.table_widget.rowHeight(row_index)
-            desired_height = scaled.height() + 8
-            if desired_height > current_height:
-                self.table_widget.setRowHeight(row_index, desired_height)
-            width = scaled.width()
+            natural_height = min(pixmap.height(), 120)
+            desired_height = max(natural_height + 16, current_height)
+            self.table_widget.setRowHeight(row_index, desired_height)
+            label.setMinimumHeight(natural_height)
+            label.setMinimumWidth(min(pixmap.width(), self.table_widget.columnWidth(col_index) or pixmap.width()))
+            self._barcode_label_entries.append((row_index, label))
+            width = pixmap.width()
         else:
             label.setText("—")
             if barcode_value:
@@ -491,17 +538,12 @@ class MainWindow(QMainWindow):
             if not isinstance(pixmap, QPixmap) or pixmap.isNull():
                 continue
 
-            scaled = pixmap.scaled(
-                available_width,
-                96,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
+            scaled = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
             label.setPixmap(scaled)
             label.setMinimumWidth(scaled.width())
             label.setMinimumHeight(scaled.height())
 
-            desired_height = scaled.height() + 8
+            desired_height = scaled.height() + 16
             if self.table_widget.rowHeight(row_index) < desired_height:
                 self.table_widget.setRowHeight(row_index, desired_height)
 
