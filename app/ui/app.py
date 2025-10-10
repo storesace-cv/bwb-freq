@@ -1,6 +1,7 @@
 """PySide6 application entry-point for the requisitions UI."""
 from __future__ import annotations
 
+import logging
 import os
 from pathlib import Path
 import sys
@@ -14,6 +15,76 @@ from PySide6.QtWidgets import QApplication
 from app.ui.assets import APP_ICON
 from app.ui.main_window import MainWindow
 from app.ui.splashscreen import SplashScreen
+
+
+def _setup_debug_logger() -> logging.Logger | None:
+    """Initialise the shared file logger when debugging is enabled."""
+
+    if os.environ.get("FREQ_DEBUGGER_ENABLED") != "1":
+        return None
+    log_path = os.environ.get("FREQ_DEBUGGER_LOG")
+    if not log_path:
+        return None
+
+    logger = logging.getLogger("freq.debugger")
+    if logger.handlers:
+        # Reuse existing handler to avoid duplicate lines when reimported.
+        return logger
+
+    logger.setLevel(logging.DEBUG)
+    try:
+        handler = logging.FileHandler(log_path, encoding="utf-8")
+    except OSError:
+        return None
+
+    formatter = logging.Formatter("%(asctime)s [app] %(levelname)s: %(message)s")
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
+    logger.propagate = False
+    logger.info("Logger de debug da aplicação inicializado em %s", log_path)
+    return logger
+
+
+DEBUGGER_LOGGER: logging.Logger | None = _setup_debug_logger()
+
+
+def _debug_log(message: str, *, level: int = logging.INFO) -> None:
+    if DEBUGGER_LOGGER is not None:
+        DEBUGGER_LOGGER.log(level, message)
+
+
+def _debug_exception(message: str) -> None:
+    if DEBUGGER_LOGGER is not None:
+        DEBUGGER_LOGGER.exception(message)
+
+
+def _format_paths(paths: Iterable[Path]) -> str:
+    parts = [str(path) for path in paths]
+    return ", ".join(parts) if parts else "<vazio>"
+
+
+def _log_environment_snapshot() -> None:
+    if DEBUGGER_LOGGER is None:
+        return
+
+    _debug_log(f"sys.executable={sys.executable}")
+    _debug_log(f"sys.argv={sys.argv}")
+    _debug_log(f"PySide6.__version__={getattr(PySide6, '__version__', 'desconhecida')}")
+    relevant_vars = [
+        "QT_QPA_PLATFORM",
+        "QT_PLUGIN_PATH",
+        "QT_QPA_PLATFORM_PLUGIN_PATH",
+        "BWB_QT_PLATFORM_DEFAULT",
+        "FREQ_DEBUGGER_LOG",
+    ]
+    for var in relevant_vars:
+        value = os.environ.get(var)
+        _debug_log(f"{var}={value}" if value is not None else f"{var}=<não definido>")
+
+
+if DEBUGGER_LOGGER is not None:
+    _debug_log("Módulo app.ui.app importado; ambiente de debug activo.")
+    _log_environment_snapshot()
 
 
 def _dedupe_paths(paths: Iterable[str]) -> list[str]:
@@ -98,6 +169,9 @@ def _merge_env_paths(
         else:
             os.environ[env_var] = merged[0]
 
+    if DEBUGGER_LOGGER is not None:
+        _debug_log(f"{env_var}={os.environ.get(env_var)}")
+
 
 def _ensure_qt_plugin_path() -> None:
     """Ensure the Qt platform plugins directory is discoverable.
@@ -112,7 +186,11 @@ def _ensure_qt_plugin_path() -> None:
 
     plugin_roots = _candidate_plugin_roots()
     if not plugin_roots:
+        _debug_log("Não foram encontrados diretórios de plugins Qt.")
         return
+
+    if DEBUGGER_LOGGER is not None:
+        _debug_log(f"Diretórios raiz de plugins Qt: {_format_paths(plugin_roots)}")
 
     existing_paths = {Path(p) for p in QCoreApplication.libraryPaths()}
     for plugin_dir in plugin_roots:
@@ -120,6 +198,8 @@ def _ensure_qt_plugin_path() -> None:
             QCoreApplication.addLibraryPath(str(plugin_dir))
 
     platform_dirs = _candidate_platform_dirs(plugin_roots)
+    if DEBUGGER_LOGGER is not None:
+        _debug_log(f"Diretórios de plataformas Qt: {_format_paths(platform_dirs)}")
     for platform_dir in platform_dirs:
         if platform_dir not in existing_paths:
             QCoreApplication.addLibraryPath(str(platform_dir))
@@ -130,6 +210,10 @@ def _ensure_qt_plugin_path() -> None:
         platform_dirs,
         allow_multiple=False,
     )
+
+    if DEBUGGER_LOGGER is not None:
+        library_paths = [Path(p) for p in QCoreApplication.libraryPaths()]
+        _debug_log(f"QCoreApplication.libraryPaths={_format_paths(library_paths)}")
 
 
 def run(argv: Sequence[str] | None = None) -> int:
@@ -142,42 +226,67 @@ def run(argv: Sequence[str] | None = None) -> int:
         QApplication instance. Defaults to ``sys.argv`` when ``None``.
     """
 
-    _ensure_qt_plugin_path()
+    args = list(argv) if argv is not None else list(sys.argv)
+    _debug_log(f"run() iniciado com argumentos: {args}")
 
-    translucent_attr = getattr(
-        Qt.ApplicationAttribute, "AA_TranslucentBackground", None
-    )
-    if translucent_attr is None:
-        translucent_attr = getattr(Qt, "AA_TranslucentBackground", None)
-    if translucent_attr is not None:
-        QCoreApplication.setAttribute(translucent_attr, True)
-    app = QApplication(list(argv) if argv is not None else sys.argv)
-    if APP_ICON.exists():
-        app.setWindowIcon(QIcon(str(APP_ICON)))
-    app.setStyleSheet(
-        "QMainWindow { background: transparent; }\n"
-        "QWidget { background: transparent; }"
-    )
+    try:
+        _ensure_qt_plugin_path()
+        _debug_log("Diretórios de plugins Qt preparados.")
 
-    splash = SplashScreen()
-    splash.show()
+        translucent_attr = getattr(
+            Qt.ApplicationAttribute, "AA_TranslucentBackground", None
+        )
+        if translucent_attr is None:
+            translucent_attr = getattr(Qt, "AA_TranslucentBackground", None)
+        if translucent_attr is not None:
+            QCoreApplication.setAttribute(translucent_attr, True)
+            _debug_log("Atributo de fundo translúcido activado.")
 
-    window: MainWindow | None = None
+        app = QApplication(args)
+        _debug_log("QApplication instanciada.")
 
-    def _launch_main_window() -> None:
-        nonlocal window
-        if window is None:
-            splash.close()
-            window = MainWindow()
-            window.show()
+        if APP_ICON.exists():
+            app.setWindowIcon(QIcon(str(APP_ICON)))
+            _debug_log(f"Ícone principal aplicado: {APP_ICON}")
+        else:
+            _debug_log("Ícone principal não encontrado; a aplicação continuará sem ícone.", level=logging.WARNING)
 
-    splash.clicked.connect(_launch_main_window)
+        app.setStyleSheet(
+            "QMainWindow { background: transparent; }\n"
+            "QWidget { background: transparent; }"
+        )
+        _debug_log("Folha de estilos aplicada ao QApplication.")
 
-    return app.exec()
+        splash = SplashScreen()
+        splash.show()
+        _debug_log("SplashScreen apresentada.")
+
+        window: MainWindow | None = None
+
+        def _launch_main_window() -> None:
+            nonlocal window
+            if window is None:
+                splash.close()
+                _debug_log("SplashScreen encerrada; a criar MainWindow.")
+                window = MainWindow()
+                window.show()
+                _debug_log("MainWindow apresentada.")
+
+        splash.clicked.connect(_launch_main_window)
+
+        exit_code = app.exec()
+        _debug_log(f"Loop de eventos Qt terminado com código {exit_code}.")
+        return exit_code
+    except Exception:
+        _debug_exception("Erro inesperado durante run().")
+        raise
 
 
 def main(argv: Sequence[str] | None = None) -> int:
-    return run(argv)
+    _debug_log("main() iniciado.")
+    exit_code = run(argv)
+    _debug_log(f"main() concluído com código {exit_code}.")
+    return exit_code
 
 
 if __name__ == "__main__":  # pragma: no cover - manual invocation helper
