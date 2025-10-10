@@ -11,3 +11,4 @@ imports/processed/
 !imports/incoming/.gitkeep
 !imports/examples/.gitkeep
 !imports/processed/.gitkeep
+launch_debug.log
