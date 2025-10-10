@@ -4,6 +4,8 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 LOGFILE="$ROOT_DIR/launch_debug.log"
+: > "$LOGFILE"
+export FREQ_PROJECT_ROOT="$ROOT_DIR"
 
 # Remover constraints legacy do Qt que pode provocar conflitos durante merges.
 LEGACY_CONSTRAINTS="$ROOT_DIR/constraints-qt.txt"
@@ -69,6 +71,12 @@ PY
     fi
     touch ".venv/.deps.ok"
   fi
+
+  if ! pip check >>"$LOGFILE" 2>&1; then
+    echo "❌ Falha na verificação de dependências (pip check)."
+    echo "   Ver detalhes em: $LOGFILE"
+    exit 1
+  fi
 }
 ensure_env
 
@@ -78,7 +86,6 @@ PYBIN=".venv/bin/python"
 # |                                        SMOKE TEST (DRY) DO wxPython                                             |
 # +------------------------------------------------------------------------------------------------------------------+
 echo "🧪 A testar wxPython (dry, sem arrancar UI)…"
-: > "$LOGFILE"
 if "$PYBIN" - >>"$LOGFILE" 2>&1 <<'PY'
 try:
     import wx
@@ -108,6 +115,60 @@ then
 else
   echo "❌ wxPython não está carregável."
   echo "   A sair sem arrancar GUI. Ver detalhes em: $LOGFILE"
+  exit 1
+fi
+
+# +------------------------------------------------------------------------------------------------------------------+
+# |                                VALIDAÇÃO DE DEPENDÊNCIAS DA APLICAÇÃO                                           |
+# +------------------------------------------------------------------------------------------------------------------+
+echo "🩺 A validar dependências críticas…"
+if "$PYBIN" - >>"$LOGFILE" 2>&1 <<'PY'
+import importlib
+import os
+import pathlib
+
+project_root = pathlib.Path(os.environ.get("FREQ_PROJECT_ROOT", "")).resolve()
+issues: list[str] = []
+
+def _record_issue(message: str) -> None:
+    issues.append(message)
+    print(message)
+
+def _log(message: str) -> None:
+    print(message)
+
+try:
+    pandas = importlib.import_module("pandas")
+except Exception as exc:  # pragma: no cover - defensive guard
+    _record_issue(f"[deps] Falha ao importar pandas: {exc}")
+else:
+    _log(f"[deps] pandas {getattr(pandas, '__version__', '<?>')} carregado.")
+
+try:
+    pytz = importlib.import_module("pytz")
+except Exception as exc:
+    _record_issue(f"[deps] Falha ao importar pytz: {exc}")
+else:
+    pytz_path = pathlib.Path(getattr(pytz, "__file__", "")).resolve()
+    if getattr(pytz, "__path__", None) is None and project_root and project_root in pytz_path.parents:
+        _record_issue("[deps] Foi encontrado um módulo local pytz.py que impede o carregamento do pacote oficial.")
+    try:
+        importlib.import_module("pytz.exceptions")
+    except Exception as exc:  # pragma: no cover - defensive guard
+        _record_issue(f"[deps] Falha ao importar pytz.exceptions: {exc}")
+    else:
+        _log("[deps] pytz.exceptions disponível.")
+
+if any(msg.startswith("[deps] Falha") for msg in issues) or any("módulo local pytz.py" in msg for msg in issues):
+    raise SystemExit(1)
+
+print("DEPS_SMOKE_OK")
+PY
+then
+  echo "✅ Dependências críticas carregáveis."
+else
+  echo "❌ Falha na validação das dependências da aplicação."
+  echo "   Ver detalhes em: $LOGFILE"
   exit 1
 fi
 
