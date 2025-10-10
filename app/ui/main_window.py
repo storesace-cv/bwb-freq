@@ -87,7 +87,6 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "ArticleName",
             "Barcode",
             "UnidadeName",
-            "Tipo de Código de Barras",
         ),
         query=(
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
@@ -319,7 +318,6 @@ class MainWindow(QMainWindow):
         self.table_widget.setHorizontalHeaderLabels(columns)
         self.table_widget.setRowCount(len(rows))
 
-        barcode_type_header = "Tipo de Código de Barras"
         barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
         for row_index, row in enumerate(rows):
@@ -334,14 +332,12 @@ class MainWindow(QMainWindow):
 
             for col_index, column in enumerate(columns):
                 if table_kind == "barcodes" and column == "Barcode":
-                    self._set_barcode_cell(row_index, col_index, barcode_value)
-                    continue
-                if table_kind == "barcodes" and column == barcode_type_header:
-                    display_type = barcode_type or "-N/A-"
-                    item = QTableWidgetItem(display_type)
-                    if barcode_type:
-                        item.setToolTip(barcode_type)
-                    self.table_widget.setItem(row_index, col_index, item)
+                    self._set_barcode_cell(
+                        row_index,
+                        col_index,
+                        barcode_value,
+                        barcode_type,
+                    )
                     continue
 
                 value = self._get_row_value(row, column, col_index)
@@ -398,15 +394,9 @@ class MainWindow(QMainWindow):
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         elif table_kind == "barcodes":
-            barcode_type_header = "Tipo de Código de Barras"
-            barcode_index = columns.index("Barcode")
-            barcode_type_index = columns.index(barcode_type_header)
-
             for index, _ in enumerate(columns):
-                if index in {barcode_index, barcode_type_index}:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-                else:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+                header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+            header.setStretchLastSection(True)
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
@@ -452,7 +442,11 @@ class MainWindow(QMainWindow):
         return label
 
     def _set_barcode_cell(
-        self, row_index: int, col_index: int, barcode_value: str | None
+        self,
+        row_index: int,
+        col_index: int,
+        barcode_value: str | None,
+        barcode_type: str | None,
     ) -> None:
         display_text = barcode_value or ""
 
@@ -491,7 +485,7 @@ class MainWindow(QMainWindow):
 
         if barcode_value:
             eye_button.clicked.connect(
-                partial(self._show_barcode_preview, barcode_value)
+                partial(self._show_barcode_preview, barcode_value, barcode_type)
             )
         else:
             eye_button.setEnabled(False)
@@ -500,7 +494,9 @@ class MainWindow(QMainWindow):
 
         self.table_widget.setCellWidget(row_index, col_index, container)
 
-    def _show_barcode_preview(self, barcode_value: str) -> None:
+    def _show_barcode_preview(
+        self, barcode_value: str, barcode_type: str | None = None
+    ) -> None:
         if not barcode_value:
             QMessageBox.information(
                 self,
@@ -509,6 +505,7 @@ class MainWindow(QMainWindow):
             )
             return
 
+        resolved_barcode_type = barcode_type or self._infer_barcode_type(barcode_value)
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is None or pixmap.isNull():
             QMessageBox.warning(
@@ -542,7 +539,39 @@ class MainWindow(QMainWindow):
         preview_label.setPixmap(scaled_pixmap)
         layout.addWidget(preview_label)
 
-        preview.resize(scaled_pixmap.width() + 32, scaled_pixmap.height() + 32)
+        info_row = QWidget(preview)
+        info_layout = QHBoxLayout(info_row)
+        info_layout.setContentsMargins(0, 0, 0, 0)
+        info_layout.setSpacing(8)
+
+        type_label = QLabel(info_row)
+        type_label.setText(
+            f"Tipo: {resolved_barcode_type}" if resolved_barcode_type else "Tipo desconhecido"
+        )
+        type_label.setAlignment(Qt.AlignCenter)
+        type_label.setStyleSheet(
+            "background-color: #1565c0; color: white; padding: 6px 10px;"
+            "border-radius: 4px; font-size: 12px;"
+        )
+        type_label.setMinimumHeight(28)
+        if resolved_barcode_type:
+            type_label.setToolTip(resolved_barcode_type)
+        info_layout.addWidget(type_label, stretch=1)
+
+        printer_label = QLabel(info_row)
+        printer_label.setText("🖨")
+        printer_label.setAlignment(Qt.AlignCenter)
+        printer_label.setStyleSheet(
+            "background-color: #9e9e9e; color: white; padding: 6px 10px;"
+            "border-radius: 4px; font-size: 14px;"
+        )
+        printer_label.setMinimumHeight(28)
+        printer_label.setToolTip("Ações de impressão brevemente disponíveis")
+        info_layout.addWidget(printer_label, stretch=1)
+
+        layout.addWidget(info_row)
+
+        preview.resize(max(scaled_pixmap.width() + 48, preview.sizeHint().width()), preview.sizeHint().height())
         self._open_barcode_previews.append(preview)
 
         def _cleanup_preview(_=None, dialog=preview) -> None:
