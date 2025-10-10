@@ -139,6 +139,24 @@ fi
 export QT_PLUGIN_PATH="$QT_PLUGINS_ROOT"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$QT_PLATFORMS_DIR"
 
+# Em algumas instalações no macOS, os plugins "cocoa" precisam que as Qt
+# frameworks sejam resolvidas explicitamente através de DYLD_*; caso contrário o
+# loader sinaliza que encontrou o plugin mas não o consegue inicializar. Definimos
+# os caminhos apenas quando existem para não interferir com outras plataformas.
+QT_LIB_DIR="$PYSIDE_DIR/Qt/lib"
+if [[ "$UNAME_OUTPUT" == "Darwin" && -d "$QT_LIB_DIR" ]]; then
+  if [[ -n "${DYLD_FRAMEWORK_PATH:-}" ]]; then
+    export DYLD_FRAMEWORK_PATH="$DYLD_FRAMEWORK_PATH:$QT_LIB_DIR"
+  else
+    export DYLD_FRAMEWORK_PATH="$QT_LIB_DIR"
+  fi
+  if [[ -n "${DYLD_LIBRARY_PATH:-}" ]]; then
+    export DYLD_LIBRARY_PATH="$DYLD_LIBRARY_PATH:$QT_LIB_DIR"
+  else
+    export DYLD_LIBRARY_PATH="$QT_LIB_DIR"
+  fi
+fi
+
 # 6) Smoke test (como tu fizeste manualmente)
 if ! "$PYBIN" - >/dev/null 2>&1 <<'PY'
 import os, pathlib
