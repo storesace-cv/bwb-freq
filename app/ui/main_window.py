@@ -418,10 +418,9 @@ class MainWindow(QMainWindow):
 
             for index, _ in enumerate(columns):
                 if index == barcode_image_index:
-                    header.setSectionResizeMode(index, QHeaderView.Interactive)
-                    minimum_width = max(self._barcode_image_max_width + 24, 220)
-                    self.table_widget.setColumnMinimumWidth(index, minimum_width)
-                    header.resizeSection(index, minimum_width)
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                    desired_width = max(self._barcode_image_max_width + 24, 220)
+                    header.resizeSection(index, desired_width)
                 elif index == barcode_type_index:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
