@@ -334,7 +334,9 @@ PY
 then
   # Retry com debug para log (sem sujar o ecrã)
   log_debug "Smoke test falhou; a recolher logs do Qt com QT_DEBUG_PLUGINS=1."
-  QT_LOG_CAPTURE="$({ QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES= "$PYBIN" - <<'PY' 2>&1 || true; })"
+  set +e
+  QT_LOG_CAPTURE="$(
+    QT_DEBUG_PLUGINS=1 "$PYBIN" - <<'PY' 2>&1
 import os, pathlib
 import PySide6
 base = pathlib.Path(PySide6.__file__).parent
@@ -349,6 +351,8 @@ if 'QT_QPA_PLATFORM' not in os.environ:
 from PySide6.QtWidgets import QApplication
 app = QApplication([])
 PY
+  )"
+  set -e
   if (( DEBUG_ENABLED )); then
     if [[ -n "$QT_LOG_CAPTURE" ]]; then
       while IFS= read -r line; do
