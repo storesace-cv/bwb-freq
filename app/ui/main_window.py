@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QMessageBox,
+    QSizePolicy,
     QTableWidget,
     QTableWidgetItem,
     QToolButton,
@@ -146,6 +147,7 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
+        self._barcode_image_max_width: int = 0
 
         self._configure_menu()
         self._background_label.resize(self.size())
@@ -250,6 +252,7 @@ class MainWindow(QMainWindow):
             "Barcode",
             "UnidadeName",
             "Código de Barras (Imagem)",
+            "Tipo de Código de Barras",
         )
         query = (
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
@@ -268,16 +271,36 @@ class MainWindow(QMainWindow):
         self.table_widget.setRowCount(len(rows))
 
         barcode_image_header = "Código de Barras (Imagem)"
+        barcode_type_header = "Tipo de Código de Barras"
         barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
+
+        if table_kind == "barcodes":
+            self._barcode_image_max_width = 0
 
         for row_index, row in enumerate(rows):
             barcode_value = None
             if barcode_column_index is not None:
                 barcode_value = self._get_row_value(row, "Barcode", barcode_column_index)
+            barcode_type = (
+                self._infer_barcode_type(barcode_value)
+                if table_kind == "barcodes"
+                else None
+            )
 
             for col_index, column in enumerate(columns):
                 if table_kind == "barcodes" and column == barcode_image_header:
-                    self._set_barcode_cell(row_index, col_index, barcode_value)
+                    width = self._set_barcode_cell(row_index, col_index, barcode_value)
+                    if width:
+                        self._barcode_image_max_width = max(
+                            self._barcode_image_max_width, width
+                        )
+                    continue
+                if table_kind == "barcodes" and column == barcode_type_header:
+                    display_type = barcode_type or "-N/A-"
+                    item = QTableWidgetItem(display_type)
+                    if barcode_type:
+                        item.setToolTip(barcode_type)
+                    self.table_widget.setItem(row_index, col_index, item)
                     continue
 
                 value = self._get_row_value(row, column, col_index)
@@ -334,12 +357,18 @@ class MainWindow(QMainWindow):
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         elif table_kind == "barcodes":
             barcode_image_header = "Código de Barras (Imagem)"
+            barcode_type_header = "Tipo de Código de Barras"
             barcode_image_index = columns.index(barcode_image_header)
+            barcode_type_index = columns.index(barcode_type_header)
 
             for index, _ in enumerate(columns):
                 if index == barcode_image_index:
-                    header.setSectionResizeMode(index, QHeaderView.Stretch)
-                    self.table_widget.setColumnMinimumWidth(index, 220)
+                    header.setSectionResizeMode(index, QHeaderView.Interactive)
+                    minimum_width = max(self._barcode_image_max_width + 24, 220)
+                    self.table_widget.setColumnMinimumWidth(index, minimum_width)
+                    header.resizeSection(index, minimum_width)
+                elif index == barcode_type_index:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         else:
@@ -365,9 +394,53 @@ class MainWindow(QMainWindow):
             return row[index]
         return None
 
+    def _infer_barcode_type(self, barcode_value: str | None) -> str | None:
+        if not barcode_value:
+            return None
+
+        digits = barcode_value.strip()
+        if not digits.isdigit():
+            return None
+
+        length = len(digits)
+        if length == 13:
+            return "EAN-13"
+        if length == 12:
+            return "UPC-A"
+        if length == 8:
+            if self._looks_like_upc_e(digits):
+                return "UPC-E"
+            return "EAN-8"
+
+        return None
+
+    def _looks_like_upc_e(self, digits: str) -> bool:
+        if len(digits) != 8 or not digits.isdigit():
+            return False
+        if digits[0] not in {"0", "1"}:
+            return False
+
+        data = digits[1:7]
+        last = data[-1]
+
+        if last in {"0", "1", "2"}:
+            manufacturer = data[:2] + last
+            product = "00" + data[2:5]
+        elif last == "3":
+            manufacturer = data[:3]
+            product = "000" + data[3:5]
+        elif last == "4":
+            manufacturer = data[:4]
+            product = "0000" + data[4]
+        else:
+            manufacturer = data[:5]
+            product = "0000" + last
+
+        return len(manufacturer) == 5 and len(product) == 5
+
     def _set_barcode_cell(
         self, row_index: int, col_index: int, barcode_value: str | None
-    ) -> None:
+    ) -> int | None:
         label = QLabel(self.table_widget)
         label.setAlignment(Qt.AlignCenter)
 
@@ -376,20 +449,25 @@ class MainWindow(QMainWindow):
             scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
             label.setPixmap(scaled)
             label.setToolTip(barcode_value or "")
+            label.setMinimumSize(scaled.size())
+            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
             current_height = self.table_widget.rowHeight(row_index)
             desired_height = scaled.height() + 8
             if desired_height > current_height:
                 self.table_widget.setRowHeight(row_index, desired_height)
+            width = scaled.width()
         else:
             label.setText("—")
             if barcode_value:
                 label.setToolTip(barcode_value)
+            width = None
 
         placeholder = QTableWidgetItem()
         placeholder.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
         placeholder.setText("")
         self.table_widget.setItem(row_index, col_index, placeholder)
         self.table_widget.setCellWidget(row_index, col_index, label)
+        return width
 
     def _get_barcode_pixmap(self, barcode_value: str | None) -> QPixmap | None:
         if not barcode_value:
