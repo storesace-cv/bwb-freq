@@ -104,7 +104,7 @@ class FrequencyApp(wx.App):
             if icon and icon.IsOk():
                 main_window.SetIcon(icon)
 
-        splash = SplashScreen(on_click=self._show_main_window)
+        splash = SplashScreen(on_click=self._show_main_window, auto_dismiss_ms=3000)
         if splash.is_available:
             self._splash = splash
             splash.Show()
