@@ -8,8 +8,10 @@ from typing import Iterable, Sequence
 
 import PySide6
 from PySide6.QtCore import QCoreApplication, QLibraryInfo, Qt
+from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
+from app.ui.assets import APP_ICON
 from app.ui.main_window import MainWindow
 from app.ui.splashscreen import SplashScreen
 
@@ -150,6 +152,8 @@ def run(argv: Sequence[str] | None = None) -> int:
     if translucent_attr is not None:
         QCoreApplication.setAttribute(translucent_attr, True)
     app = QApplication(list(argv) if argv is not None else sys.argv)
+    if APP_ICON.exists():
+        app.setWindowIcon(QIcon(str(APP_ICON)))
     app.setStyleSheet(
         "QMainWindow { background: transparent; }\n"
         "QWidget { background: transparent; }"
