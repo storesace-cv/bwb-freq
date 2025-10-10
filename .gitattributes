@@ -1,0 +1,2 @@
+# Force legacy Qt constraints file to prefer the wxPython branch version (file removed)
+constraints-qt.txt merge=ours
