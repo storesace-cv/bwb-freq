@@ -134,6 +134,30 @@ def dataset_paths(tmp_path) -> SimpleNamespace:
         ],
     )
 
+    fichas_tecnicas = _ensure_example(
+        tmp_dir,
+        examples_dir,
+        "Fichas Tecnicas.xlsx",
+        fallback=[
+            {
+                "Prod Venda / Generico": "A001",
+                "Nome prod venda / generico": "Água 0.5L",
+                "Componente": "A002",
+                "Nome componente": "Café Torrado",
+                "Quantidade": 2,
+                "Unidade": "UN",
+            },
+            {
+                "Prod Venda / Generico": "A001",
+                "Nome prod venda / generico": "Água 0.5L",
+                "Componente": "A003",
+                "Nome componente": "Chá Verde",
+                "Quantidade": 1,
+                "Unidade": "UN",
+            },
+        ],
+    )
+
     invalid_warehouses = _ensure_example(
         tmp_dir,
         examples_dir,
@@ -154,6 +178,7 @@ def dataset_paths(tmp_path) -> SimpleNamespace:
         articles=articles,
         warehouses=warehouses,
         barcodes=barcodes,
+        fichas_tecnicas=fichas_tecnicas,
         invalid_warehouses=invalid_warehouses,
     )
 
