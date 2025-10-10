@@ -29,8 +29,6 @@ from barcode import get_barcode_class
 from barcode.writer import ImageWriter
 
 from app.data.db import get_connection, init_db
-from app.ui.assets import BACKGROUND_IMAGE
-from app.ui.background_utils import BackgroundLayer, ensure_transparent
 from app.services.importer import (
     build_warehouse_articles_from_disp,
     import_article_barcodes,
@@ -47,6 +45,9 @@ class TableDisplayConfig:
     columns: tuple[str, ...]
     query: str
     table_kind: str
+
+
+BARCODE_DISPLAY_LIMIT = 14
 
 
 TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
@@ -131,22 +132,18 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("Requisições Internas — MVP")
         self.setFixedSize(1024, 768)
         self.setStyleSheet(
-            "QMainWindow, #central-widget { background: transparent; }"
+            "QMainWindow { background-color: #f5f5f5; }"
+            "#central-widget { background-color: #ffffff; }"
+            "QTableWidget {"
+            "    background-color: #ffffff;"
+            "    alternate-background-color: #f0f0f0;"
+            "    gridline-color: #d0d0d0;"
+            "}"
         )
-        ensure_transparent(self)
-        self._background_layer = BackgroundLayer(
-            self,
-            BACKGROUND_IMAGE,
-            "main-background",
-        )
-        # Keep a direct reference to the QLabel created by ``BackgroundLayer``
-        # so resize handlers can operate on ``_background_label`` as expected.
-        self._background_label = self._background_layer.label
         init_db()
 
         central = QWidget(self)
         central.setObjectName("central-widget")
-        ensure_transparent(central)
 
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -159,7 +156,6 @@ class MainWindow(QMainWindow):
         self.menu_button = QToolButton(self)
         self.menu_button.setText("Menu")
         self.menu_button.setPopupMode(QToolButton.InstantPopup)
-        ensure_transparent(self.menu_button)
         size_hint = self.menu_button.sizeHint()
         scale_factor = 1.4  # 30% smaller than the previous doubled size
         self.menu_button.setFixedSize(
@@ -175,7 +171,6 @@ class MainWindow(QMainWindow):
         layout.addLayout(top_row)
 
         self.workspace = QWidget(self)
-        ensure_transparent(self.workspace)
         self.workspace_layout = QVBoxLayout(self.workspace)
         self.workspace_layout.setContentsMargins(32, 24, 32, 32)
         self.workspace_layout.setSpacing(16)
@@ -212,11 +207,6 @@ class MainWindow(QMainWindow):
         self._open_barcode_previews: list[QDialog] = []
 
         self._configure_menu()
-        self._background_label.resize(self.size())
-
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
-        super().resizeEvent(event)
-        self._background_label.resize(self.size())
 
     def _configure_menu(self) -> None:
         menu = QMenu(self.menu_button)
@@ -394,8 +384,16 @@ class MainWindow(QMainWindow):
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         elif table_kind == "barcodes":
+            barcode_index = columns.index("Barcode")
+            char_width = self.table_widget.fontMetrics().horizontalAdvance("0")
+            barcode_width = char_width * BARCODE_DISPLAY_LIMIT + 24
+
             for index, _ in enumerate(columns):
-                header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+                if index == barcode_index:
+                    header.setSectionResizeMode(index, QHeaderView.Fixed)
+                    header.resizeSection(index, barcode_width)
+                else:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
             header.setStretchLastSection(True)
         else:
             for index, _ in enumerate(columns):
@@ -449,11 +447,19 @@ class MainWindow(QMainWindow):
         barcode_type: str | None,
     ) -> None:
         display_text = barcode_value or ""
+        tooltip_text = None
+
+        if barcode_value:
+            display_text, tooltip_text = self._truncate_with_tooltip(
+                barcode_value, BARCODE_DISPLAY_LIMIT
+            )
+            if tooltip_text is None:
+                tooltip_text = barcode_value
 
         item = QTableWidgetItem(display_text)
         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        if barcode_value:
-            item.setToolTip(barcode_value)
+        if tooltip_text:
+            item.setToolTip(tooltip_text)
         self.table_widget.setItem(row_index, col_index, item)
 
         container = QWidget(self.table_widget)
@@ -468,8 +474,8 @@ class MainWindow(QMainWindow):
         text_label = QLabel(display_text, container)
         text_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_label.setWordWrap(False)
-        if barcode_value:
-            text_label.setToolTip(barcode_value)
+        if tooltip_text:
+            text_label.setToolTip(tooltip_text)
         layout.addWidget(text_label, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignLeft)
 
         eye_button = QToolButton(container)
