@@ -6,12 +6,11 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable, Iterable
 
-from PySide6.QtCore import QEvent, Qt
-from PySide6.QtGui import QIcon, QPixmap
+from PySide6.QtCore import Qt
+from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QDialog,
-    QFrame,
     QGridLayout,
     QHeaderView,
     QHBoxLayout,
@@ -447,6 +446,7 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "ArticleName",
             "Barcode",
             "UnidadeName",
+            "Tipo de Código de Barras",
         ),
         query=(
             "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
@@ -659,22 +659,14 @@ class MainWindow(QMainWindow):
         )
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(False)
-        table_container_layout.addWidget(self.table_widget)
-
-        self.workspace_layout.addWidget(self.table_container)
-        self.workspace_hint.setText(self.workspace_hint_default_text)
-        self.workspace_hint.setVisible(True)
+        self.workspace_layout.addWidget(self.table_widget)
 
         layout.addWidget(self.workspace, stretch=1)
 
         self.setCentralWidget(central)
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
-        self._barcode_image_max_width: int = 0
-        self._barcode_label_entries: list[tuple[int, QLabel]] = []
-        self._barcode_image_column: int | None = None
-        self._barcode_image_max_height: int = 75
-        self._barcode_image_min_width: int = self._barcode_image_max_height * 4
+        self._open_barcode_previews: list[QDialog] = []
 
         self._install_drag_handle(self.function_bar)
         self._install_drag_handle(self.title_label)
@@ -831,17 +823,7 @@ class MainWindow(QMainWindow):
         self.table_widget.setColumnCount(len(columns))
         self.table_widget.setHorizontalHeaderLabels(columns)
 
-        if (
-            self._current_table_id == HOME_TABLE_ID
-            and len(columns) >= 3
-        ):
-            frozen_indices: list[int] = list(range(3))
-        else:
-            frozen_indices = []
-
-        self.table_widget.set_frozen_columns(frozen_indices)
-        self.table_widget.setRowCount(len(rows))
-
+        barcode_type_header = "Tipo de Código de Barras"
         barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
         for row_index, row in enumerate(rows):
@@ -856,12 +838,14 @@ class MainWindow(QMainWindow):
 
             for col_index, column in enumerate(columns):
                 if table_kind == "barcodes" and column == "Barcode":
-                    self._set_barcode_cell(
-                        row_index,
-                        col_index,
-                        barcode_value,
-                        barcode_type,
-                    )
+                    self._set_barcode_cell(row_index, col_index, barcode_value)
+                    continue
+                if table_kind == "barcodes" and column == barcode_type_header:
+                    display_type = barcode_type or "-N/A-"
+                    item = QTableWidgetItem(display_type)
+                    if barcode_type:
+                        item.setToolTip(barcode_type)
+                    self.table_widget.setItem(row_index, col_index, item)
                     continue
 
                 value = self._get_row_value(row, column, col_index)
@@ -931,24 +915,15 @@ class MainWindow(QMainWindow):
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         elif table_kind == "barcodes":
+            barcode_type_header = "Tipo de Código de Barras"
             barcode_index = columns.index("Barcode")
-            char_width = self.table_widget.fontMetrics().horizontalAdvance("0")
-            barcode_width = char_width * BARCODE_DISPLAY_LIMIT + 24
+            barcode_type_index = columns.index(barcode_type_header)
 
             for index, _ in enumerate(columns):
-                if index == barcode_image_index:
-                    header.setSectionResizeMode(index, QHeaderView.Stretch)
-                    desired_width = max(
-                        self._barcode_image_max_width + 24,
-                        self._barcode_image_min_width + 24,
-                        220,
-                    )
-                    header.resizeSection(index, desired_width)
-                elif index == barcode_type_index:
+                if index in {barcode_index, barcode_type_index}:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-            header.setStretchLastSection(True)
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
@@ -994,61 +969,17 @@ class MainWindow(QMainWindow):
         return label
 
     def _set_barcode_cell(
-        self,
-        row_index: int,
-        col_index: int,
-        barcode_value: str | None,
-        barcode_type: str | None,
+        self, row_index: int, col_index: int, barcode_value: str | None
     ) -> None:
         display_text = barcode_value or ""
-        tooltip_text = None
-
-        if barcode_value:
-            display_text, tooltip_text = self._truncate_with_tooltip(
-                barcode_value, BARCODE_DISPLAY_LIMIT
-            )
-            if tooltip_text is None:
-                tooltip_text = barcode_value
 
         item = QTableWidgetItem(display_text)
         item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        if tooltip_text:
-            item.setToolTip(tooltip_text)
+        if barcode_value:
+            item.setToolTip(barcode_value)
         self.table_widget.setItem(row_index, col_index, item)
 
-        widget = self._create_barcode_widget(
-            display_text,
-            tooltip_text,
-            barcode_value,
-            barcode_type,
-            self.table_widget,
-        )
-        self.table_widget.setCellWidget(row_index, col_index, widget)
-        self.table_widget.set_frozen_cell_widget(
-            row_index,
-            col_index,
-            lambda parent,
-            text=display_text,
-            tip=tooltip_text,
-            value=barcode_value,
-            b_type=barcode_type: self._create_barcode_widget(
-                text,
-                tip,
-                value,
-                b_type,
-                parent,
-            ),
-        )
-
-    def _create_barcode_widget(
-        self,
-        display_text: str,
-        tooltip_text: str | None,
-        barcode_value: str | None,
-        barcode_type: str | None,
-        parent: QWidget,
-    ) -> QWidget:
-        container = QWidget(parent)
+        container = QWidget(self.table_widget)
         container.setAutoFillBackground(False)
 
         layout = QGridLayout(container)
@@ -1060,8 +991,8 @@ class MainWindow(QMainWindow):
         text_label = QLabel(display_text, container)
         text_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
         text_label.setWordWrap(False)
-        if tooltip_text:
-            text_label.setToolTip(tooltip_text)
+        if barcode_value:
+            text_label.setToolTip(barcode_value)
         layout.addWidget(text_label, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignLeft)
 
         eye_button = QToolButton(container)
@@ -1077,18 +1008,16 @@ class MainWindow(QMainWindow):
 
         if barcode_value:
             eye_button.clicked.connect(
-                partial(self._show_barcode_preview, barcode_value, barcode_type)
+                partial(self._show_barcode_preview, barcode_value)
             )
         else:
             eye_button.setEnabled(False)
 
         layout.addWidget(eye_button, 0, 1, alignment=Qt.AlignTop | Qt.AlignRight)
 
-        return container
+        self.table_widget.setCellWidget(row_index, col_index, container)
 
-    def _show_barcode_preview(
-        self, barcode_value: str, barcode_type: str | None = None
-    ) -> None:
+    def _show_barcode_preview(self, barcode_value: str) -> None:
         if not barcode_value:
             QMessageBox.information(
                 self,
@@ -1097,7 +1026,6 @@ class MainWindow(QMainWindow):
             )
             return
 
-        resolved_barcode_type = barcode_type or self._infer_barcode_type(barcode_value)
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is None or pixmap.isNull():
             QMessageBox.warning(
@@ -1131,39 +1059,7 @@ class MainWindow(QMainWindow):
         preview_label.setPixmap(scaled_pixmap)
         layout.addWidget(preview_label)
 
-        info_row = QWidget(preview)
-        info_layout = QHBoxLayout(info_row)
-        info_layout.setContentsMargins(0, 0, 0, 0)
-        info_layout.setSpacing(8)
-
-        type_label = QLabel(info_row)
-        type_label.setText(
-            f"Tipo: {resolved_barcode_type}" if resolved_barcode_type else "Tipo desconhecido"
-        )
-        type_label.setAlignment(Qt.AlignCenter)
-        type_label.setStyleSheet(
-            "background-color: #1565c0; color: white; padding: 6px 10px;"
-            "border-radius: 4px; font-size: 12px;"
-        )
-        type_label.setMinimumHeight(28)
-        if resolved_barcode_type:
-            type_label.setToolTip(resolved_barcode_type)
-        info_layout.addWidget(type_label, stretch=1)
-
-        printer_label = QLabel(info_row)
-        printer_label.setText("🖨")
-        printer_label.setAlignment(Qt.AlignCenter)
-        printer_label.setStyleSheet(
-            "background-color: #9e9e9e; color: white; padding: 6px 10px;"
-            "border-radius: 4px; font-size: 14px;"
-        )
-        printer_label.setMinimumHeight(28)
-        printer_label.setToolTip("Ações de impressão brevemente disponíveis")
-        info_layout.addWidget(printer_label, stretch=1)
-
-        layout.addWidget(info_row)
-
-        preview.resize(max(scaled_pixmap.width() + 48, preview.sizeHint().width()), preview.sizeHint().height())
+        preview.resize(scaled_pixmap.width() + 32, scaled_pixmap.height() + 32)
         self._open_barcode_previews.append(preview)
 
         def _cleanup_preview(_=None, dialog=preview) -> None:
