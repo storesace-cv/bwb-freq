@@ -1,29 +1,12 @@
-"""Main window for the requisitions UI."""
+"""Main window for the requisitions UI built with wxPython."""
+from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import partial
 from io import BytesIO
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import QEvent, QPoint, Qt
-from PySide6.QtGui import QIcon, QPixmap
-from PySide6.QtWidgets import (
-    QAbstractItemView,
-    QDialog,
-    QGridLayout,
-    QHeaderView,
-    QHBoxLayout,
-    QLabel,
-    QMainWindow,
-    QMenu,
-    QMessageBox,
-    QTableWidget,
-    QTableWidgetItem,
-    QToolButton,
-    QVBoxLayout,
-    QWidget,
-)
+import wx
 
 from barcode import get_barcode_class
 from barcode.writer import ImageWriter
@@ -49,9 +32,6 @@ class TableDisplayConfig:
     columns: tuple[str, ...]
     query: str
     table_kind: str
-
-
-BARCODE_DISPLAY_LIMIT = 14
 
 
 HOME_TABLE_ID = "home_barcodes"
@@ -155,332 +135,184 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
 }
 
 
-MENU_STYLESHEET = """
-QMenu {
-    background-color: rgba(245, 222, 179, 160);
-    border: 1px solid rgba(189, 183, 107, 180);
-    border-radius: 12px;
-    padding: 6px;
-}
-
-QMenu::item {
-    background-color: transparent;
-    border-radius: 8px;
-    padding: 6px 20px;
-    color: #202020;
-}
-
-QMenu::item:selected {
-    background-color: rgba(255, 255, 255, 90);
-}
-
-QMenu::separator {
-    height: 1px;
-    background: rgba(0, 0, 0, 40);
-    margin: 4px 0;
-}
-"""
-
-
-class MainWindow(QMainWindow):
-    """Minimal main window that exposes a menu button."""
+class MainWindow(wx.Frame):
+    """Main application window using wxPython widgets."""
 
     def __init__(self) -> None:
-        super().__init__()
-        self.setWindowTitle("Requisições Internas — MVP")
+        style = wx.DEFAULT_FRAME_STYLE
+        super().__init__(None, title="Requisições Internas — MVP", size=(1024, 768), style=style)
+
         if APP_ICON.exists():
-            self.setWindowIcon(QIcon(str(APP_ICON)))
-        self.setFixedSize(1024, 768)
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Window)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.setStyleSheet(
-            "QMainWindow {"
-            "    background-color: rgba(245, 245, 245, 0.25);"
-            "}"
-            "#function-bar {"
-            "    background-color: rgba(245, 245, 245, 0.25);"
-            "}"
-            "#function-bar QLabel {"
-            "    color: #202020;"
-            "    font-size: 18px;"
-            "    font-weight: 600;"
-            "}"
-            "#central-widget {"
-            "    background-color: rgba(255, 255, 255, 0.25);"
-            "}"
-            "QTableWidget {"
-            "    background-color: rgba(255, 255, 255, 0.25);"
-            "    alternate-background-color: rgba(240, 240, 240, 0.25);"
-            "    gridline-color: rgba(208, 208, 208, 0.50);"
-            "}"
-        )
+            try:
+                self.SetIcon(wx.Icon(str(APP_ICON)))
+            except Exception:  # pragma: no cover - icon issues
+                pass
+
         init_db()
 
         self._background_layer = BackgroundLayer(self, BACKGROUND_IMAGE, "main-background")
-
-        central = QWidget(self)
-        central.setObjectName("central-widget")
-        central.setAttribute(Qt.WA_StyledBackground, True)
-        central.setAutoFillBackground(False)
-
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
-
-        self.function_bar = QWidget(self)
-        self.function_bar.setObjectName("function-bar")
-        self.function_bar.setAttribute(Qt.WA_StyledBackground, True)
-        self.function_bar.setAutoFillBackground(False)
-        function_layout = QHBoxLayout(self.function_bar)
-        function_layout.setContentsMargins(24, 12, 24, 12)
-        function_layout.setSpacing(12)
-
-        self.title_label = QLabel("Requisições Internas", self.function_bar)
-        self.title_label.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        function_layout.addWidget(self.title_label)
-        function_layout.addStretch()
-
-        self.menu_button = QToolButton(self.function_bar)
-        self.menu_button.setText("Menu")
-        self.menu_button.setPopupMode(QToolButton.InstantPopup)
-        size_hint = self.menu_button.sizeHint()
-        scale_factor = 1.4  # 30% smaller than the previous doubled size
-        self.menu_button.setFixedSize(
-            int(size_hint.width() * scale_factor),
-            int(size_hint.height() * scale_factor),
-        )
-        self.menu_button.setStyleSheet(
-            "QToolButton { font-size: 16px; padding: 6px 18px; border: none; }"
-        )
-        function_layout.addWidget(self.menu_button)
-
-        self.close_button = QToolButton(self.function_bar)
-        self.close_button.setText("✕")
-        self.close_button.setAutoRaise(True)
-        self.close_button.setToolTip("Sair da aplicação")
-        self.close_button.setCursor(Qt.PointingHandCursor)
-        self.close_button.setStyleSheet(
-            "QToolButton { font-size: 16px; padding: 6px 12px; border: none; }"
-            "QToolButton:hover { color: #c62828; }"
-        )
-        self.close_button.clicked.connect(self.close)
-        function_layout.addWidget(self.close_button)
-
-        layout.addWidget(self.function_bar)
-
-        self.workspace = QWidget(self)
-        self.workspace.setAttribute(Qt.WA_StyledBackground, True)
-        self.workspace.setAutoFillBackground(False)
-        self.workspace_layout = QVBoxLayout(self.workspace)
-        self.workspace_layout.setContentsMargins(32, 24, 32, 32)
-        self.workspace_layout.setSpacing(16)
-
-        self.workspace_hint_default_text = "Selecione uma tabela em Tabelas para visualizar os dados."
-        self.workspace_hint = QLabel("", self.workspace)
-        self.workspace_hint.setAlignment(Qt.AlignCenter)
-        self.workspace_hint.setStyleSheet("color: #202020; font-size: 16px;")
-        self.workspace_hint.setVisible(False)
-        self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
-
-        self.table_container = QWidget(self.workspace)
-        self.table_container.setObjectName("table-container")
-        self.table_container.setVisible(False)
-        self.table_container.setAttribute(Qt.WA_StyledBackground, True)
-        self.table_container.setStyleSheet(
-            "#table-container { background-color: rgba(255, 255, 255, 0.50);"
-            " border-radius: 12px; padding: 16px; }"
-        )
-        table_container_layout = QVBoxLayout(self.table_container)
-        table_container_layout.setContentsMargins(0, 0, 0, 0)
-        table_container_layout.setSpacing(12)
-
-        table_header = QWidget(self.table_container)
-        table_header.setObjectName("table-header")
-        table_header.setAttribute(Qt.WA_StyledBackground, True)
-        table_header.setStyleSheet(
-            "#table-header { background-color: rgba(255, 255, 255, 0.50);"
-            " border-radius: 8px; padding: 10px 12px; }"
-        )
-        table_header_layout = QHBoxLayout(table_header)
-        table_header_layout.setContentsMargins(0, 0, 0, 0)
-        table_header_layout.setSpacing(12)
-
-        self.table_title = QLabel("", table_header)
-        self.table_title.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
-        self.table_title.setStyleSheet("font-size: 18px; font-weight: 600; color: #202020;")
-        table_header_layout.addWidget(self.table_title)
-        table_header_layout.addStretch()
-
-        self.close_table_button = QToolButton(table_header)
-        self.close_table_button.setText("Fechar")
-        self.close_table_button.setCursor(Qt.PointingHandCursor)
-        self.close_table_button.setToolTip("Fechar a visualização e regressar ao ecrã inicial")
-        self.close_table_button.setStyleSheet(
-            "QToolButton { font-size: 14px; padding: 6px 14px; border: none; "
-            "background-color: rgba(158, 158, 158, 0.6); border-radius: 6px; color: #202020; }"
-            "QToolButton:hover { background-color: rgba(158, 158, 158, 0.85); }"
-        )
-        self.close_table_button.clicked.connect(self._close_table_view)
-        table_header_layout.addWidget(self.close_table_button)
-
-        table_container_layout.addWidget(table_header)
-
-        self.table_widget = QTableWidget(self.table_container)
-        self.table_widget.setVisible(False)
-        self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table_widget.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table_widget.setAlternatingRowColors(True)
-        self.table_widget.setWordWrap(False)
-        self.table_widget.setTextElideMode(Qt.ElideRight)
-        self.table_widget.verticalHeader().setVisible(False)
-        self.table_widget.setAttribute(Qt.WA_StyledBackground, True)
-        self.table_widget.setAutoFillBackground(False)
-        self.table_widget.viewport().setAutoFillBackground(False)
-        self.table_widget.setStyleSheet(
-            "QTableWidget { background-color: rgba(255, 255, 255, 0.50);"
-            " alternate-background-color: rgba(240, 240, 240, 0.50);"
-            " gridline-color: rgba(208, 208, 208, 0.50);"
-            " border-radius: 8px; }"
-        )
-        header = self.table_widget.horizontalHeader()
-        header.setStretchLastSection(False)
-        self.workspace_layout.addWidget(self.table_widget)
-
-        layout.addWidget(self.workspace, stretch=1)
-
-        self.setCentralWidget(central)
-
-        self._barcode_pixmap_cache: dict[str, QPixmap] = {}
-        self._open_barcode_previews: list[QDialog] = []
-        self._drag_handles: set[QWidget] = set()
-        self._drag_offset: QPoint | None = None
         self._current_table_id: str | None = None
+        self._barcode_column_index: int | None = None
+        self._row_metadata: dict[int, dict[str, str]] = {}
+        self._barcode_bitmap_cache: dict[str, wx.Bitmap] = {}
+        self._open_barcode_dialogs: set[wx.Dialog] = set()
 
-        self._install_drag_handle(self.function_bar)
-        self._install_drag_handle(self.title_label)
-
+        self._build_ui()
         self._configure_menu()
         self._show_table(HOME_TABLE_ID)
 
-    def _configure_menu(self) -> None:
-        menu = QMenu(self.menu_button)
-        self._apply_menu_styling(menu)
+    # ------------------------------------------------------------------
+    # UI construction
+    # ------------------------------------------------------------------
+    def _build_ui(self) -> None:
+        panel = wx.Panel(self)
+        panel.SetName("central-panel")
 
-        base_de_dados_menu = self._add_submenu(menu, "Base de Dados")
-        self._add_action(
-            base_de_dados_menu,
+        main_sizer = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(main_sizer)
+
+        header = wx.Panel(panel)
+        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
+        header.SetSizer(header_sizer)
+        header.SetBackgroundColour(wx.Colour(240, 236, 229))
+
+        title = wx.StaticText(header, label="Requisições Internas")
+        title.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_SEMIBOLD))
+        header_sizer.Add(title, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 12)
+
+        close_button = wx.Button(header, label="Sair")
+        close_button.Bind(wx.EVT_BUTTON, lambda _evt: self.Close())
+        header_sizer.Add(close_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 12)
+
+        main_sizer.Add(header, 0, wx.EXPAND)
+
+        hint_panel = wx.Panel(panel)
+        hint_sizer = wx.BoxSizer(wx.VERTICAL)
+        hint_panel.SetSizer(hint_sizer)
+
+        self.workspace_hint_default_text = "Selecione uma tabela em Menu ▸ Tabelas para visualizar os dados."
+        self.workspace_hint = wx.StaticText(hint_panel, label=self.workspace_hint_default_text)
+        self.workspace_hint.Wrap(760)
+        hint_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
+        self.workspace_hint.SetFont(hint_font)
+        hint_sizer.Add(self.workspace_hint, 0, wx.ALIGN_CENTER | wx.ALL, 20)
+
+        main_sizer.Add(hint_panel, 0, wx.EXPAND)
+
+        table_panel = wx.Panel(panel)
+        table_panel.SetName("table-panel")
+        table_panel.SetBackgroundColour(wx.Colour(250, 248, 244))
+        table_sizer = wx.BoxSizer(wx.VERTICAL)
+        table_panel.SetSizer(table_sizer)
+
+        header_row = wx.BoxSizer(wx.HORIZONTAL)
+        self.table_title = wx.StaticText(table_panel, label="")
+        self.table_title.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_SEMIBOLD))
+        header_row.Add(self.table_title, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
+
+        self.close_table_button = wx.Button(table_panel, label="Fechar")
+        self.close_table_button.Bind(wx.EVT_BUTTON, lambda _evt: self._close_table_view())
+        header_row.Add(self.close_table_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
+
+        table_sizer.Add(header_row, 0, wx.EXPAND)
+
+        self.table_widget = wx.ListCtrl(
+            table_panel,
+            style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES | wx.BORDER_SUNKEN,
+        )
+        self.table_widget.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_item_activated)
+        table_sizer.Add(self.table_widget, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+
+        main_sizer.Add(table_panel, 1, wx.EXPAND | wx.ALL, 16)
+
+        self.table_container = table_panel
+        self._toggle_table_visibility(False)
+
+        self.status_bar = self.CreateStatusBar()
+        self.status_bar.SetStatusText("Pronto")
+
+        panel.Layout()
+
+    def _configure_menu(self) -> None:
+        menu_bar = wx.MenuBar()
+
+        main_menu = wx.Menu()
+
+        base_dados_menu = wx.Menu()
+        self._add_menu_item(
+            base_dados_menu,
             "Atualizar Dados",
             handler=self._update_database_from_excels,
         )
-        self._add_action(
-            base_de_dados_menu,
+        self._add_menu_item(
+            base_dados_menu,
             "Importar Dados",
             handler=self._import_incoming_excels,
         )
-        seguranca_menu = self._add_submenu(base_de_dados_menu, "Segurança")
-        self._add_action(seguranca_menu, "Segurança")
-        self._add_action(seguranca_menu, "Reposição")
 
-        tabelas_menu = self._add_submenu(menu, "Tabelas")
-        self._add_action(
-            tabelas_menu,
-            "Artigos",
-            handler=partial(self._show_table, "netbo"),
-        )
-        self._add_action(
+        seguranca_menu = wx.Menu()
+        seguranca_menu.Append(wx.ID_ANY, "Segurança")
+        seguranca_menu.Append(wx.ID_ANY, "Reposição")
+        base_dados_menu.AppendSubMenu(seguranca_menu, "Segurança")
+
+        main_menu.AppendSubMenu(base_dados_menu, "Base de Dados")
+
+        tabelas_menu = wx.Menu()
+        self._add_menu_item(tabelas_menu, "Artigos", handler=lambda: self._show_table("netbo"))
+        self._add_menu_item(
             tabelas_menu,
             "Departamentos",
-            handler=partial(self._show_table, "wharehouses"),
+            handler=lambda: self._show_table("wharehouses"),
         )
-        self._add_action(
+        self._add_menu_item(
             tabelas_menu,
             "Artigos | Códigos de Barras",
-            handler=partial(self._show_table, "barcodes"),
+            handler=lambda: self._show_table("barcodes"),
         )
-        self._add_action(
+        self._add_menu_item(
             tabelas_menu,
             "Artigos | Fichas Técnicas",
-            handler=partial(self._show_table, "fichas_tecnicas"),
+            handler=lambda: self._show_table("fichas_tecnicas"),
         )
+        main_menu.AppendSubMenu(tabelas_menu, "Tabelas")
 
-        utilitarios_menu = self._add_submenu(menu, "Utilitários")
-        gestao_documentos_menu = self._add_submenu(
-            utilitarios_menu, "Gestão de Documentos"
-        )
-        self._add_action(gestao_documentos_menu, "Editor de Documentos")
-        self._add_action(gestao_documentos_menu, "Modelos Activos")
-        self._add_action(gestao_documentos_menu, "Actualizar Documentos")
+        utilitarios_menu = wx.Menu()
+        gestao_documentos_menu = wx.Menu()
+        gestao_documentos_menu.Append(wx.ID_ANY, "Editor de Documentos")
+        gestao_documentos_menu.Append(wx.ID_ANY, "Modelos Activos")
+        gestao_documentos_menu.Append(wx.ID_ANY, "Actualizar Documentos")
+        utilitarios_menu.AppendSubMenu(gestao_documentos_menu, "Gestão de Documentos")
+        utilitarios_menu.Append(wx.ID_ANY, "Configurações")
+        main_menu.AppendSubMenu(utilitarios_menu, "Utilitários")
 
-        self._add_submenu(menu, "Configurações")
+        parametrizacoes_menu = wx.Menu()
+        integracao_menu = wx.Menu()
+        integracao_menu.Append(wx.ID_ANY, "NETbo (Excel)")
+        integracao_menu.Append(wx.ID_ANY, "NETbo (API)")
+        integracao_menu.Append(wx.ID_ANY, "StoresAce (Excel)")
+        parametrizacoes_menu.AppendSubMenu(integracao_menu, "Integração")
+        parametrizacoes_menu.Append(wx.ID_ANY, "Moeda")
+        main_menu.AppendSubMenu(parametrizacoes_menu, "Parametrizações")
 
-        menu.addSeparator()
-        self._add_action(menu, "Sair", handler=self.close)
+        main_menu.AppendSeparator()
+        self._add_menu_item(main_menu, "Sair", handler=self.Close)
 
-        parametrizacoes_menu = self._add_submenu(menu, "Parametrizações")
-        integracao_menu = self._add_submenu(parametrizacoes_menu, "Integração")
-        self._add_action(integracao_menu, "NETbo (Excel)")
-        self._add_action(integracao_menu, "NETbo (API)")
-        self._add_action(integracao_menu, "StoresAce (Excel)")
-        self._add_action(parametrizacoes_menu, "Moeda")
+        menu_bar.Append(main_menu, "Menu")
+        self.SetMenuBar(menu_bar)
 
-        self.menu_button.setMenu(menu)
+    def _add_menu_item(self, menu: wx.Menu, label: str, *, handler: Callable[[], None]) -> None:
+        item_id = wx.NewIdRef()
+        menu.Append(item_id, label)
 
-    def _install_drag_handle(self, widget: QWidget) -> None:
-        """Allow ``widget`` to act as a draggable area for the frameless window."""
+        def _callback(_event: wx.CommandEvent) -> None:
+            handler()
 
-        self._drag_handles.add(widget)
-        widget.installEventFilter(self)
+        self.Bind(wx.EVT_MENU, _callback, id=item_id)
 
-    def _add_submenu(self, parent: QMenu, title: str) -> QMenu:
-        """Create a submenu and ensure the shared style is applied."""
-
-        submenu = parent.addMenu(title)
-        self._apply_menu_styling(submenu)
-        return submenu
-
-    def eventFilter(self, obj, event):  # type: ignore[override]
-        if obj in self._drag_handles:
-            if event.type() == QEvent.MouseButtonPress and event.button() == Qt.LeftButton:
-                self._drag_offset = event.globalPosition().toPoint() - self.frameGeometry().topLeft()
-                event.accept()
-                return True
-            if event.type() == QEvent.MouseMove and event.buttons() & Qt.LeftButton:
-                if self._drag_offset is not None:
-                    self.move(event.globalPosition().toPoint() - self._drag_offset)
-                    event.accept()
-                    return True
-            if event.type() == QEvent.MouseButtonRelease and event.button() == Qt.LeftButton:
-                self._drag_offset = None
-                event.accept()
-                return True
-        return super().eventFilter(obj, event)
-
-    def _add_action(
-        self, menu: QMenu, title: str, *, handler: Callable[[], None] | None = None
-    ):
-        """Create an action and connect it to ``handler`` when provided."""
-
-        action = menu.addAction(title)
-        if handler is not None:
-            action.triggered.connect(partial(self._invoke_action_handler, handler))
-        return action
-
-    def _invoke_action_handler(
-        self, handler: Callable[[], None], _checked: bool = False
-    ) -> None:
-        """Invoke ``handler`` ignoring the checked state from Qt signals."""
-
-        handler()
-
-    def _apply_menu_styling(self, menu: QMenu) -> None:
-        """Apply the shared stylesheet for beige semi-transparent menus."""
-
-        menu.setStyleSheet(MENU_STYLESHEET)
-
+    # ------------------------------------------------------------------
+    # Table handling
+    # ------------------------------------------------------------------
     def _show_table(self, table_id: str) -> None:
-        """Fetch the configuration for ``table_id`` and display the rows."""
-
         self._current_table_id = table_id
 
         config = TABLE_CONFIGS.get(table_id)
@@ -507,126 +339,159 @@ class MainWindow(QMainWindow):
         table_kind: str,
         title: str,
     ) -> None:
-        self.table_widget.clear()
-        self.table_widget.setColumnCount(len(columns))
-        self.table_widget.setHorizontalHeaderLabels(columns)
+        self.table_widget.ClearAll()
+        self._row_metadata.clear()
+        self._barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
-        barcode_type_header = "Tipo de Código de Barras"
-        barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
+        for index, column in enumerate(columns):
+            self.table_widget.InsertColumn(index, column)
 
         for row_index, row in enumerate(rows):
             barcode_value = None
-            if barcode_column_index is not None:
-                barcode_value = self._get_row_value(row, "Barcode", barcode_column_index)
-            barcode_type = (
-                self._infer_barcode_type(barcode_value)
-                if table_kind == "barcodes"
-                else None
-            )
+            if self._barcode_column_index is not None:
+                barcode_value = self._get_row_value(row, "Barcode", self._barcode_column_index)
 
+            values: list[str] = []
             for col_index, column in enumerate(columns):
-                if table_kind == "barcodes" and column == "Barcode":
-                    self._set_barcode_cell(row_index, col_index, barcode_value)
-                    continue
-                if table_kind == "barcodes" and column == barcode_type_header:
-                    display_type = barcode_type or "-N/A-"
-                    item = QTableWidgetItem(display_type)
-                    if barcode_type:
-                        item.setToolTip(barcode_type)
-                    self.table_widget.setItem(row_index, col_index, item)
+                if table_kind == "barcodes" and column == "Tipo de Código de Barras":
+                    barcode_type = self._infer_barcode_type(barcode_value)
+                    values.append(barcode_type or "-N/A-")
                     continue
 
                 value = self._get_row_value(row, column, col_index)
                 text = "" if value is None else str(value)
-                item = QTableWidgetItem()
-                display_text = text
+                values.append(text)
 
-                if column in {"Familia", "SubFamilia"}:
-                    truncated, tooltip = self._truncate_with_tooltip(text, 20)
-                    display_text = truncated
-                    if tooltip:
-                        item.setToolTip(tooltip)
-                elif column == "Produto":
-                    if text:
-                        item.setToolTip(text)
-                else:
-                    if text and column in {"ArticleName", "Barcode", "UnidadeName"}:
-                        item.setToolTip(text)
+            item_index = self.table_widget.InsertItem(row_index, values[0]) if values else -1
+            if item_index == -1:
+                continue
+            for col_index in range(1, len(values)):
+                self.table_widget.SetItem(item_index, col_index, values[col_index])
 
-                item.setText(display_text)
-                self.table_widget.setItem(row_index, col_index, item)
+            if barcode_value:
+                self._row_metadata[item_index] = {"barcode": str(barcode_value)}
 
-        if not rows:
-            self.table_widget.setRowCount(0)
+        self._toggle_table_visibility(True)
 
-        self._configure_header(columns, table_kind)
-        self.table_title.setText(title)
-        self.table_container.setVisible(True)
-        self.table_widget.setVisible(True)
-        self.table_widget.viewport().update()
         if rows:
-            self.workspace_hint.setVisible(False)
-            self.workspace_hint.setText(self.workspace_hint_default_text)
+            for col_index in range(len(columns)):
+                self.table_widget.SetColumnWidth(col_index, wx.LIST_AUTOSIZE)
+                width = self.table_widget.GetColumnWidth(col_index)
+                if width <= 0:
+                    self.table_widget.SetColumnWidth(col_index, 120)
+            self.workspace_hint.SetLabel(self.workspace_hint_default_text)
+            self.workspace_hint.Show(False)
+            hint_text = "Dê um duplo clique numa linha com código de barras para visualizar a imagem."
+            self.status_bar.SetStatusText(hint_text)
         else:
-            self.workspace_hint.setText("Não existem registos para mostrar.")
-            self.workspace_hint.setVisible(True)
+            self.workspace_hint.SetLabel("Não existem registos para mostrar.")
+            self.workspace_hint.Show(True)
+            self.status_bar.SetStatusText("Sem registos disponíveis.")
+            for col_index in range(len(columns)):
+                self.table_widget.SetColumnWidth(col_index, wx.LIST_AUTOSIZE_USEHEADER)
+
+        self.table_title.SetLabel(title)
+        self.table_widget.Refresh()
+
+    def _toggle_table_visibility(self, show: bool) -> None:
+        self.table_container.Show(show)
+        self.close_table_button.Enable(show)
+        self.table_widget.Enable(show)
+        self.Layout()
 
     def _close_table_view(self) -> None:
-        """Hide the table view and show the workspace hint again."""
+        self.table_widget.ClearAll()
+        self.table_widget.Refresh()
+        self.workspace_hint.SetLabel(self.workspace_hint_default_text)
+        self.workspace_hint.Show(True)
+        self.status_bar.SetStatusText("Tabela fechada.")
+        self._toggle_table_visibility(False)
 
-        self.table_widget.clear()
-        self.table_widget.setRowCount(0)
-        self.table_widget.setVisible(False)
-        self.table_container.setVisible(False)
-        self.workspace_hint.setText(self.workspace_hint_default_text)
-        self.workspace_hint.setVisible(True)
-
-    def _configure_header(self, columns: tuple[str, ...], table_kind: str) -> None:
-        header = self.table_widget.horizontalHeader()
-        header.setStretchLastSection(False)
-
-        if table_kind == "netbo":
-            product_index = columns.index("Produto")
-            familia_index = columns.index("Familia")
-            subfamilia_index = columns.index("SubFamilia")
-
-            char_width = self.table_widget.fontMetrics().horizontalAdvance("W")
-            familia_width = char_width * 20 + 16
-
-            for index, column in enumerate(columns):
-                if index == product_index:
-                    header.setSectionResizeMode(index, QHeaderView.Stretch)
-                elif index in {familia_index, subfamilia_index}:
-                    header.setSectionResizeMode(index, QHeaderView.Fixed)
-                    header.resizeSection(index, familia_width)
-                else:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-        elif table_kind == "barcodes":
-            barcode_type_header = "Tipo de Código de Barras"
-            barcode_index = columns.index("Barcode")
-            barcode_type_index = (
-                columns.index(barcode_type_header)
-                if barcode_type_header in columns
-                else None
+    # ------------------------------------------------------------------
+    # Barcode handling
+    # ------------------------------------------------------------------
+    def _on_item_activated(self, event: wx.ListEvent) -> None:
+        metadata = self._row_metadata.get(event.GetIndex())
+        if not metadata:
+            wx.MessageBox(
+                "Não existe um código de barras para apresentar nesta linha.",
+                "Código de barras indisponível",
+                parent=self,
             )
+            return
 
-            for index, _ in enumerate(columns):
-                if index == barcode_index or index == barcode_type_index:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-                else:
-                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-        else:
-            for index, _ in enumerate(columns):
-                header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
-            header.setStretchLastSection(True)
+        barcode_value = metadata.get("barcode")
+        if barcode_value:
+            self._show_barcode_preview(barcode_value)
 
-    def _truncate_with_tooltip(self, text: str, limit: int) -> tuple[str, str | None]:
-        if not text:
-            return "", None
-        if len(text) <= limit:
-            return text, None
-        truncated = text[:limit].rstrip()
-        return f"{truncated}…", text
+    def _show_barcode_preview(self, barcode_value: str) -> None:
+        bitmap = self._get_barcode_bitmap(barcode_value)
+        if bitmap is None or not bitmap.IsOk():
+            wx.MessageBox(
+                "Não foi possível gerar a imagem do código de barras.",
+                "Pré-visualização indisponível",
+                parent=self,
+                style=wx.ICON_WARNING,
+            )
+            return
+
+        dialog = wx.Dialog(self, title=f"Código de Barras — {barcode_value}")
+        sizer = wx.BoxSizer(wx.VERTICAL)
+        dialog.SetSizer(sizer)
+
+        image = bitmap
+        if image.GetHeight() > 220:
+            scaled = image.ConvertToImage().Scale(
+                image.GetWidth(),
+                220,
+                wx.IMAGE_QUALITY_HIGH,
+            )
+            image = wx.Bitmap(scaled)
+
+        preview = wx.StaticBitmap(dialog, bitmap=image)
+        preview.SetToolTip(barcode_value)
+        sizer.Add(preview, 1, wx.ALIGN_CENTER | wx.ALL, 16)
+
+        sizer.Fit(dialog)
+        dialog.Layout()
+        dialog.CentreOnParent()
+        dialog.Show()
+        self._open_barcode_dialogs.add(dialog)
+
+        def _cleanup(_event: wx.Event) -> None:
+            self._open_barcode_dialogs.discard(dialog)
+
+        dialog.Bind(wx.EVT_WINDOW_DESTROY, _cleanup)
+
+    def _get_barcode_bitmap(self, barcode_value: str | None) -> wx.Bitmap | None:
+        if not barcode_value:
+            return None
+        if barcode_value in self._barcode_bitmap_cache:
+            return self._barcode_bitmap_cache[barcode_value]
+
+        try:
+            barcode_class = get_barcode_class("code128")
+            barcode = barcode_class(barcode_value, writer=ImageWriter())
+            buffer = BytesIO()
+            barcode.write(
+                buffer,
+                {
+                    "module_height": 40.0,
+                    "module_width": 0.8,
+                    "quiet_zone": 2.0,
+                    "font_size": 10,
+                },
+            )
+            data = buffer.getvalue()
+            stream = wx.MemoryInputStream(data, len(data))
+            image = wx.Image(stream, wx.BITMAP_TYPE_PNG)
+            if image.IsOk():
+                bitmap = wx.Bitmap(image)
+                self._barcode_bitmap_cache[barcode_value] = bitmap
+                return bitmap
+        except Exception:  # pragma: no cover - invalid barcodes or wx failures
+            return None
+        return None
 
     def _get_row_value(self, row, column: str, index: int):
         if hasattr(row, "keys"):
@@ -659,137 +524,10 @@ class MainWindow(QMainWindow):
             return None
         return label
 
-    def _set_barcode_cell(
-        self, row_index: int, col_index: int, barcode_value: str | None
-    ) -> None:
-        display_text = barcode_value or ""
-
-        item = QTableWidgetItem(display_text)
-        item.setFlags(Qt.ItemIsEnabled | Qt.ItemIsSelectable)
-        if barcode_value:
-            item.setToolTip(barcode_value)
-        self.table_widget.setItem(row_index, col_index, item)
-
-        container = QWidget(self.table_widget)
-        container.setAutoFillBackground(False)
-
-        layout = QGridLayout(container)
-        layout.setContentsMargins(6, 2, 6, 2)
-        layout.setHorizontalSpacing(4)
-        layout.setVerticalSpacing(0)
-        layout.setColumnStretch(0, 1)
-
-        text_label = QLabel(display_text, container)
-        text_label.setAlignment(Qt.AlignLeft | Qt.AlignVCenter)
-        text_label.setWordWrap(False)
-        if barcode_value:
-            text_label.setToolTip(barcode_value)
-        layout.addWidget(text_label, 0, 0, alignment=Qt.AlignVCenter | Qt.AlignLeft)
-
-        eye_button = QToolButton(container)
-        eye_button.setAutoRaise(True)
-        eye_button.setCursor(Qt.PointingHandCursor)
-        eye_button.setStyleSheet(
-            "QToolButton { border: none; color: #c62828; font-size: 14px; padding: 0; }"
-            "QToolButton::menu-indicator { image: none; }"
-        )
-        eye_button.setText("👁")
-        eye_button.setToolTip("Ver código de barras")
-        eye_button.setFixedSize(18, 18)
-
-        if barcode_value:
-            eye_button.clicked.connect(
-                partial(self._show_barcode_preview, barcode_value)
-            )
-        else:
-            eye_button.setEnabled(False)
-
-        layout.addWidget(eye_button, 0, 1, alignment=Qt.AlignTop | Qt.AlignRight)
-
-        self.table_widget.setCellWidget(row_index, col_index, container)
-
-    def _show_barcode_preview(self, barcode_value: str) -> None:
-        if not barcode_value:
-            QMessageBox.information(
-                self,
-                "Código de barras indisponível",
-                "Não existe um código de barras para apresentar.",
-            )
-            return
-
-        pixmap = self._get_barcode_pixmap(barcode_value)
-        if pixmap is None or pixmap.isNull():
-            QMessageBox.warning(
-                self,
-                "Pré-visualização indisponível",
-                "Não foi possível gerar a imagem do código de barras.",
-            )
-            return
-
-        preview = QDialog(self)
-        preview.setWindowTitle(f"Código de Barras — {barcode_value}")
-        preview.setModal(False)
-        preview.setAttribute(Qt.WA_DeleteOnClose, True)
-
-        layout = QVBoxLayout(preview)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        preview_label = QLabel(preview)
-        preview_label.setAlignment(Qt.AlignCenter)
-        preview_label.setToolTip(barcode_value)
-
-        max_height = 220
-        if pixmap.height() > max_height:
-            scaled_pixmap = pixmap.scaledToHeight(
-                max_height, Qt.SmoothTransformation
-            )
-        else:
-            scaled_pixmap = pixmap
-
-        preview_label.setPixmap(scaled_pixmap)
-        layout.addWidget(preview_label)
-
-        preview.resize(scaled_pixmap.width() + 32, scaled_pixmap.height() + 32)
-        self._open_barcode_previews.append(preview)
-
-        def _cleanup_preview(_=None, dialog=preview) -> None:
-            if dialog in self._open_barcode_previews:
-                self._open_barcode_previews.remove(dialog)
-
-        preview.destroyed.connect(_cleanup_preview)
-        preview.show()
-
-    def _get_barcode_pixmap(self, barcode_value: str | None) -> QPixmap | None:
-        if not barcode_value:
-            return None
-        if barcode_value in self._barcode_pixmap_cache:
-            return self._barcode_pixmap_cache[barcode_value]
-
-        try:
-            barcode_class = get_barcode_class("code128")
-            barcode = barcode_class(barcode_value, writer=ImageWriter())
-            buffer = BytesIO()
-            barcode.write(
-                buffer,
-                {
-                    "module_height": 40.0,
-                    "module_width": 0.8,
-                    "quiet_zone": 2.0,
-                    "font_size": 10,
-                },
-            )
-            pixmap = QPixmap()
-            if pixmap.loadFromData(buffer.getvalue()):
-                self._barcode_pixmap_cache[barcode_value] = pixmap
-                return pixmap
-        except Exception:  # pragma: no cover - fallback for invalid barcodes
-            return None
-        return None
-
+    # ------------------------------------------------------------------
+    # Imports and data refresh helpers
+    # ------------------------------------------------------------------
     def _update_database_from_excels(self) -> None:
-        """Re-import Excel files and refresh the current table when possible."""
-
         imported, missing, errors = self._process_incoming_excels()
         self._notify_import_results(imported, missing, errors)
 
@@ -797,14 +535,10 @@ class MainWindow(QMainWindow):
             self._refresh_active_table()
 
     def _import_incoming_excels(self) -> None:
-        """Import Excel files from ``imports/incoming`` and archive them."""
-
         imported, missing, errors = self._process_incoming_excels()
         self._notify_import_results(imported, missing, errors)
 
     def _process_incoming_excels(self) -> tuple[list[str], list[str], list[str]]:
-        """Load Excel files from ``imports/incoming`` and archive processed ones."""
-
         incoming_dir = Path("imports/incoming")
         processed_dir = Path("imports/processed")
         processed_dir.mkdir(parents=True, exist_ok=True)
@@ -816,9 +550,9 @@ class MainWindow(QMainWindow):
             ("Fichas Tecnicas.xlsx", import_fichas_tecnicas, "FichasTecnicas"),
         )
 
-        imported = []
-        missing = []
-        errors = []
+        imported: list[str] = []
+        missing: list[str] = []
+        errors: list[str] = []
 
         for file_name, importer, label in tasks:
             src = incoming_dir / file_name
@@ -851,15 +585,13 @@ class MainWindow(QMainWindow):
         missing: list[str],
         errors: list[str],
     ) -> None:
-        """Display a message box summarising the import outcome."""
-
         if errors:
             message = "Ocorreram erros ao importar:\n" + "\n".join(errors)
             if imported:
                 message += "\n\nImportações concluídas:\n" + "\n".join(imported)
             if missing:
                 message += "\n\nFicheiros em falta:\n" + "\n".join(missing)
-            QMessageBox.critical(self, "Importação com erros", message)
+            wx.MessageBox(message, "Importação com erros", parent=self, style=wx.ICON_ERROR)
             return
 
         if not imported:
@@ -870,23 +602,22 @@ class MainWindow(QMainWindow):
                 )
             else:
                 message = "Não existem ficheiros para importar em imports/incoming."
-            QMessageBox.information(self, "Sem dados", message)
+            wx.MessageBox(message, "Sem dados", parent=self)
             return
 
         message_lines = ["Importação concluída com sucesso:"] + imported
         if missing:
             message_lines.append("\nFicheiros em falta:")
             message_lines.extend(missing)
-        QMessageBox.information(self, "Importação concluída", "\n".join(message_lines))
+        wx.MessageBox("\n".join(message_lines), "Importação concluída", parent=self)
 
     def _refresh_active_table(self) -> None:
-        """Reload the currently displayed table after an import."""
-
         if not self._current_table_id:
             return
         try:
             self._show_table(self._current_table_id)
         except Exception:
-            # Avoid crashing the UI if the refresh fails; the user already
-            # received feedback from the import notification.
             pass
+
+
+__all__ = ["MainWindow", "TABLE_CONFIGS", "HOME_TABLE_ID"]
