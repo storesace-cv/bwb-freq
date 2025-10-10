@@ -4,6 +4,35 @@ set -Eeuo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
+DEBUG_MODE=0
+DEBUG_LOG="$ROOT_DIR/launch_debug.log"
+POSITIONAL=()
+while [ "$#" -gt 0 ]; do
+  case "$1" in
+    --debbug|--debug)
+      DEBUG_MODE=1
+      shift
+      ;;
+    --)
+      shift
+      POSITIONAL+=("$@")
+      break
+      ;;
+    *)
+      POSITIONAL+=("$1")
+      shift
+      ;;
+  esac
+done
+set -- "${POSITIONAL[@]}"
+
+if [ "$DEBUG_MODE" = "1" ]; then
+  : >"$DEBUG_LOG"
+  exec 1> >(tee -a "$DEBUG_LOG") 2>&1
+  echo "🪵 Debug mode ativo — a registar em $DEBUG_LOG"
+  export FREQ_LAUNCH_DEBUG=1
+fi
+
 echo "==> Arranque do setup (requirements + venv) …"
 
 find_python311() {
