@@ -6,17 +6,63 @@ cd "$ROOT_DIR"
 
 echo "==> Arranque do setup (requirements + venv) …"
 
-PY311="/opt/homebrew/bin/python3.11"
-if [ ! -x "$PY311" ]; then
-  echo "❌ Python 3.11 (Homebrew) não encontrado em $PY311"
-  echo "   Instala com: brew install python@3.11"
+find_python311() {
+  local os
+  os="$(uname -s 2>/dev/null || echo unknown)"
+  local candidates=()
+  if [ "$os" = "Darwin" ]; then
+    candidates+=("/opt/homebrew/bin/python3.11")
+  fi
+  local cmd path
+  for cmd in python3.11 python3 python; do
+    path="$(command -v "$cmd" 2>/dev/null || true)"
+    if [ -n "$path" ]; then
+      candidates+=("$path")
+    fi
+  done
+  local candidate
+  for candidate in "${candidates[@]}"; do
+    if [ -z "$candidate" ] || [ ! -x "$candidate" ]; then
+      continue
+    fi
+    if "$candidate" - <<'PY' >/dev/null 2>&1; then
+import sys
+sys.exit(0 if sys.version_info >= (3, 11) else 1)
+PY
+      echo "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+PYTHON_BIN="$(find_python311 || true)"
+if [ -z "$PYTHON_BIN" ]; then
+  if [ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then
+    echo "❌ Python 3.11 (Homebrew) não encontrado."
+    echo "   Instala com: brew install python@3.11"
+  else
+    echo "❌ Python 3.11+ não encontrado no PATH."
+    echo "   Instala uma versão recente de Python (>=3.11) e volta a tentar."
+  fi
   exit 1
 fi
 
+if [ -x ".venv/bin/python" ]; then
+  if ! .venv/bin/python - <<'PY' >/dev/null 2>&1; then
+import sys
+sys.exit(0 if sys.version_info >= (3, 11) else 1)
+PY
+    echo "♻️  Venv existente não está em Python >=3.11 — a recriar…"
+    rm -rf .venv
+  fi
+fi
+
 if [ ! -x ".venv/bin/python" ]; then
-  echo "⚙️  A criar venv .venv com Python 3.11…"
+  PY_DETECTED_VERSION="$($PYTHON_BIN -V 2>&1 | awk '{print $2}')"
+  echo "⚙️  A criar venv .venv com ${PY_DETECTED_VERSION:-Python >=3.11}…"
   rm -rf .venv
-  "$PY311" -m venv .venv
+  "$PYTHON_BIN" -m venv .venv
 fi
 
 # shellcheck source=/dev/null
