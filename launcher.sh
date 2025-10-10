@@ -333,9 +333,8 @@ app = QApplication([])
 PY
 then
   # Retry com debug para log (sem sujar o ecrã)
-  log_debug "Smoke test falhou; a repetir com QT_DEBUG_PLUGINS=1."
-  LOGFILE="$ROOT_DIR/launch_debug.log"
-  QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES= "$PYBIN" - >"$LOGFILE" 2>&1 <<'PY' || true
+  log_debug "Smoke test falhou; a recolher logs do Qt com QT_DEBUG_PLUGINS=1."
+  QT_LOG_CAPTURE="$({ QT_DEBUG_PLUGINS=1 QT_LOGGING_RULES= "$PYBIN" - <<'PY' 2>&1 || true; })"
 import os, pathlib
 import PySide6
 base = pathlib.Path(PySide6.__file__).parent
@@ -351,14 +350,19 @@ from PySide6.QtWidgets import QApplication
 app = QApplication([])
 PY
   if (( DEBUG_ENABLED )); then
-    if [[ -f "$LOGFILE" ]]; then
-      log_debug "Conteúdo de $LOGFILE:" 
-      sed 's/^/[qt] /' "$LOGFILE" >>"$DEBUG_LOG" || true
+    if [[ -n "$QT_LOG_CAPTURE" ]]; then
+      while IFS= read -r line; do
+        log_debug "[qt] $line"
+      done <<<"$QT_LOG_CAPTURE"
     else
-      log_debug "Não foi possível gerar $LOGFILE" 
+      log_debug "[qt] (sem saída capturada)"
+    fi
+  else
+    if [[ -n "$QT_LOG_CAPTURE" ]]; then
+      printf '%s\n' "$QT_LOG_CAPTURE" >&2
     fi
   fi
-  echo "❌ Falha no smoke test do Qt. Vê detalhes em launch_debug.log" >&2
+  echo "❌ Falha no smoke test do Qt. Detalhes acima." >&2
   exit 1
 fi
 log_debug "Smoke test concluído com sucesso."
