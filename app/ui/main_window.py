@@ -139,7 +139,9 @@ class MainWindow(QMainWindow):
         self.table_widget.setWordWrap(False)
         self.table_widget.setTextElideMode(Qt.ElideRight)
         self.table_widget.verticalHeader().setVisible(False)
-        self.table_widget.horizontalHeader().setStretchLastSection(False)
+        header = self.table_widget.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.sectionResized.connect(self._handle_section_resized)
         self.workspace_layout.addWidget(self.table_widget)
 
         layout.addWidget(self.workspace, stretch=1)
@@ -148,6 +150,8 @@ class MainWindow(QMainWindow):
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
         self._barcode_image_max_width: int = 0
+        self._barcode_label_entries: list[tuple[int, QLabel]] = []
+        self._barcode_image_column: int | None = None
 
         self._configure_menu()
         self._background_label.resize(self.size())
@@ -274,6 +278,8 @@ class MainWindow(QMainWindow):
         barcode_type_header = "Tipo de Código de Barras"
         barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
+        self._barcode_label_entries = []
+
         if table_kind == "barcodes":
             self._barcode_image_max_width = 0
 
@@ -371,10 +377,13 @@ class MainWindow(QMainWindow):
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+            self._barcode_image_column = barcode_image_index
+            self._resize_barcode_images(barcode_image_index)
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
             header.setStretchLastSection(True)
+            self._barcode_image_column = None
 
     def _truncate_with_tooltip(self, text: str, limit: int) -> tuple[str, str | None]:
         if not text:
@@ -443,14 +452,17 @@ class MainWindow(QMainWindow):
     ) -> int | None:
         label = QLabel(self.table_widget)
         label.setAlignment(Qt.AlignCenter)
+        label.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
 
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is not None:
             scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
             label.setPixmap(scaled)
             label.setToolTip(barcode_value or "")
-            label.setMinimumSize(scaled.size())
-            label.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Preferred)
+            label.setMinimumHeight(scaled.height())
+            label.setMinimumWidth(scaled.width())
+            label._orig_pixmap = pixmap  # type: ignore[attr-defined]
+            self._barcode_label_entries.append((row_index, label))
             current_height = self.table_widget.rowHeight(row_index)
             desired_height = scaled.height() + 8
             if desired_height > current_height:
@@ -468,6 +480,34 @@ class MainWindow(QMainWindow):
         self.table_widget.setItem(row_index, col_index, placeholder)
         self.table_widget.setCellWidget(row_index, col_index, label)
         return width
+
+    def _resize_barcode_images(self, column_index: int) -> None:
+        if not self._barcode_label_entries:
+            return
+
+        available_width = max(self.table_widget.columnWidth(column_index) - 12, 1)
+        for row_index, label in self._barcode_label_entries:
+            pixmap = getattr(label, "_orig_pixmap", None)
+            if not isinstance(pixmap, QPixmap) or pixmap.isNull():
+                continue
+
+            scaled = pixmap.scaled(
+                available_width,
+                96,
+                Qt.KeepAspectRatio,
+                Qt.SmoothTransformation,
+            )
+            label.setPixmap(scaled)
+            label.setMinimumWidth(scaled.width())
+            label.setMinimumHeight(scaled.height())
+
+            desired_height = scaled.height() + 8
+            if self.table_widget.rowHeight(row_index) < desired_height:
+                self.table_widget.setRowHeight(row_index, desired_height)
+
+    def _handle_section_resized(self, logical_index: int, _old_size: int, _new_size: int) -> None:
+        if self._barcode_image_column == logical_index:
+            self._resize_barcode_images(logical_index)
 
     def _get_barcode_pixmap(self, barcode_value: str | None) -> QPixmap | None:
         if not barcode_value:
