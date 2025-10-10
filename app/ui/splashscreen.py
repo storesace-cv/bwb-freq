@@ -23,6 +23,7 @@ class SplashScreen(wx.Frame):
         ensure_transparent(panel)
 
         self._background = BackgroundLayer(panel, BACKGROUND_IMAGE, "splash-background")
+        self._image: wx.StaticBitmap | None = None
 
         splash_bitmap = None
         if SPLASH_IMAGE.exists():
@@ -37,6 +38,7 @@ class SplashScreen(wx.Frame):
         if splash_bitmap and splash_bitmap.IsOk():
             image = wx.StaticBitmap(panel, bitmap=splash_bitmap)
             image.SetName("splash-image")
+            self._image = image
             layout.AddStretchSpacer()
             layout.Add(image, 0, wx.ALIGN_CENTER | wx.ALL, 0)
             layout.AddStretchSpacer()
@@ -59,9 +61,16 @@ class SplashScreen(wx.Frame):
         return self._is_available
 
     def _bind_events(self, panel: wx.Panel) -> None:
+        self.Bind(wx.EVT_LEFT_UP, self._handle_click)
+        self.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+
         panel.Bind(wx.EVT_LEFT_UP, self._handle_click)
         panel.Bind(wx.EVT_RIGHT_UP, self._handle_click)
         panel.Bind(wx.EVT_CHAR_HOOK, self._handle_key)
+
+        if self._image is not None:
+            self._image.Bind(wx.EVT_LEFT_UP, self._handle_click)
+            self._image.Bind(wx.EVT_RIGHT_UP, self._handle_click)
 
         if self._background.label is not None:
             self._background.label.Bind(wx.EVT_LEFT_UP, self._handle_click)
