@@ -36,7 +36,8 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
-from app.ui.assets import APP_ICON
+from app.ui.assets import APP_ICON, BACKGROUND_IMAGE
+from app.ui.background_utils import BackgroundLayer
 from app.utils.barcodes import classify_gs1_barcode
 
 
@@ -44,6 +45,7 @@ from app.utils.barcodes import classify_gs1_barcode
 class TableDisplayConfig:
     """Immutable configuration describing how to render a database table."""
 
+    title: str
     columns: tuple[str, ...]
     query: str
     table_kind: str
@@ -54,6 +56,7 @@ BARCODE_DISPLAY_LIMIT = 14
 
 TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
     "netbo": TableDisplayConfig(
+        title="Artigos",
         columns=(
             "Codigo",
             "Produto",
@@ -71,6 +74,7 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
         table_kind="netbo",
     ),
     "wharehouses": TableDisplayConfig(
+        title="Departamentos",
         columns=(
             "Codigo",
             "Tipo",
@@ -85,6 +89,7 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
         table_kind="wharehouses",
     ),
     "barcodes": TableDisplayConfig(
+        title="Artigos | Códigos de Barras",
         columns=(
             "ArticleFoId",
             "ArticleName",
@@ -97,6 +102,7 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
         table_kind="barcodes",
     ),
     "fichas_tecnicas": TableDisplayConfig(
+        title="Artigos | Fichas Técnicas",
         columns=(
             "ProdVendaGenerico",
             "Componente",
@@ -172,6 +178,8 @@ class MainWindow(QMainWindow):
         )
         init_db()
 
+        self._background_layer = BackgroundLayer(self, BACKGROUND_IMAGE, "main-background")
+
         central = QWidget(self)
         central.setObjectName("central-widget")
         central.setAttribute(Qt.WA_StyledBackground, True)
@@ -236,7 +244,39 @@ class MainWindow(QMainWindow):
         self.workspace_hint.setVisible(False)
         self.workspace_layout.addWidget(self.workspace_hint, alignment=Qt.AlignCenter)
 
-        self.table_widget = QTableWidget(self.workspace)
+        self.table_container = QWidget(self.workspace)
+        self.table_container.setVisible(False)
+        self.table_container.setAttribute(Qt.WA_StyledBackground, True)
+        table_container_layout = QVBoxLayout(self.table_container)
+        table_container_layout.setContentsMargins(0, 0, 0, 0)
+        table_container_layout.setSpacing(12)
+
+        table_header = QWidget(self.table_container)
+        table_header_layout = QHBoxLayout(table_header)
+        table_header_layout.setContentsMargins(0, 0, 0, 0)
+        table_header_layout.setSpacing(12)
+
+        self.table_title = QLabel("", table_header)
+        self.table_title.setAlignment(Qt.AlignVCenter | Qt.AlignLeft)
+        self.table_title.setStyleSheet("font-size: 18px; font-weight: 600; color: #202020;")
+        table_header_layout.addWidget(self.table_title)
+        table_header_layout.addStretch()
+
+        self.close_table_button = QToolButton(table_header)
+        self.close_table_button.setText("Fechar")
+        self.close_table_button.setCursor(Qt.PointingHandCursor)
+        self.close_table_button.setToolTip("Fechar a visualização e regressar ao ecrã inicial")
+        self.close_table_button.setStyleSheet(
+            "QToolButton { font-size: 14px; padding: 6px 14px; border: none; "
+            "background-color: rgba(158, 158, 158, 0.6); border-radius: 6px; color: #202020; }"
+            "QToolButton:hover { background-color: rgba(158, 158, 158, 0.85); }"
+        )
+        self.close_table_button.clicked.connect(self._close_table_view)
+        table_header_layout.addWidget(self.close_table_button)
+
+        table_container_layout.addWidget(table_header)
+
+        self.table_widget = QTableWidget(self.table_container)
         self.table_widget.setVisible(False)
         self.table_widget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.table_widget.setSelectionMode(QAbstractItemView.SingleSelection)
@@ -250,7 +290,11 @@ class MainWindow(QMainWindow):
         self.table_widget.viewport().setAutoFillBackground(False)
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(False)
-        self.workspace_layout.addWidget(self.table_widget)
+        table_container_layout.addWidget(self.table_widget)
+
+        self.workspace_layout.addWidget(self.table_container)
+        self.workspace_hint.setText(self.workspace_hint_default_text)
+        self.workspace_hint.setVisible(True)
 
         layout.addWidget(self.workspace, stretch=1)
 
@@ -385,13 +429,25 @@ class MainWindow(QMainWindow):
             raise ValueError(f"Unknown table identifier: {table_id}")
 
         rows = self._fetch_rows(config.query)
-        self._populate_table(config.columns, rows, table_kind=config.table_kind)
+        self._populate_table(
+            config.columns,
+            rows,
+            table_kind=config.table_kind,
+            title=config.title,
+        )
 
     def _fetch_rows(self, query: str) -> list:
         with get_connection() as conn:
             return conn.execute(query).fetchall()
 
-    def _populate_table(self, columns: tuple[str, ...], rows: list, *, table_kind: str) -> None:
+    def _populate_table(
+        self,
+        columns: tuple[str, ...],
+        rows: list,
+        *,
+        table_kind: str,
+        title: str,
+    ) -> None:
         self.table_widget.clear()
         self.table_widget.setColumnCount(len(columns))
         self.table_widget.setHorizontalHeaderLabels(columns)
@@ -443,6 +499,8 @@ class MainWindow(QMainWindow):
             self.table_widget.setRowCount(0)
 
         self._configure_header(columns, table_kind)
+        self.table_title.setText(title)
+        self.table_container.setVisible(True)
         self.table_widget.setVisible(True)
         self.table_widget.viewport().update()
         if rows:
@@ -451,6 +509,16 @@ class MainWindow(QMainWindow):
         else:
             self.workspace_hint.setText("Não existem registos para mostrar.")
             self.workspace_hint.setVisible(True)
+
+    def _close_table_view(self) -> None:
+        """Hide the table view and show the workspace hint again."""
+
+        self.table_widget.clear()
+        self.table_widget.setRowCount(0)
+        self.table_widget.setVisible(False)
+        self.table_container.setVisible(False)
+        self.workspace_hint.setText(self.workspace_hint_default_text)
+        self.workspace_hint.setVisible(True)
 
     def _configure_header(self, columns: tuple[str, ...], table_kind: str) -> None:
         header = self.table_widget.horizontalHeader()
