@@ -484,19 +484,28 @@ class MainWindow(QMainWindow):
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is not None:
             label._orig_pixmap = pixmap  # type: ignore[attr-defined]
-            label.setPixmap(pixmap)
             label.setToolTip(barcode_value or "")
-            natural_height = min(pixmap.height(), self._barcode_image_max_height)
+
+            if pixmap.height() > self._barcode_image_max_height:
+                scaled_pixmap = pixmap.scaledToHeight(
+                    self._barcode_image_max_height, Qt.SmoothTransformation
+                )
+            else:
+                scaled_pixmap = pixmap
+
+            label.setPixmap(scaled_pixmap)
+
+            display_height = scaled_pixmap.height()
             desired_height = min(
-                max(natural_height + 16, 32),
+                max(display_height + 16, 32),
                 self._barcode_image_max_height + 16,
             )
             self.table_widget.setRowHeight(row_index, desired_height)
-            label.setMinimumHeight(natural_height)
+            label.setMinimumHeight(display_height)
             label.setMaximumHeight(self._barcode_image_max_height)
-            label.setMinimumWidth(min(pixmap.width(), self.table_widget.columnWidth(col_index) or pixmap.width()))
+            label.setMinimumWidth(scaled_pixmap.width())
             self._barcode_label_entries.append((row_index, label))
-            width = pixmap.width()
+            width = scaled_pixmap.width()
         else:
             label.setText("—")
             if barcode_value:
@@ -520,12 +529,21 @@ class MainWindow(QMainWindow):
             if not isinstance(pixmap, QPixmap) or pixmap.isNull():
                 continue
 
-            scaled = pixmap.scaled(
-                available_width,
-                self._barcode_image_max_height,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
+            if pixmap.height() > self._barcode_image_max_height:
+                scaled = pixmap.scaledToHeight(
+                    self._barcode_image_max_height, Qt.SmoothTransformation
+                )
+            else:
+                scaled = pixmap
+
+            if scaled.width() > available_width:
+                scaled = pixmap.scaled(
+                    available_width,
+                    self._barcode_image_max_height,
+                    Qt.KeepAspectRatio,
+                    Qt.SmoothTransformation,
+                )
+
             label.setPixmap(scaled)
             label.setMinimumWidth(scaled.width())
             label.setMinimumHeight(scaled.height())
