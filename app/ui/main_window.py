@@ -97,64 +97,6 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
 }
 
 
-@dataclass(frozen=True)
-class TableDisplayConfig:
-    """Immutable configuration describing how to render a database table."""
-
-    columns: tuple[str, ...]
-    query: str
-    table_kind: str
-
-
-TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
-    "netbo": TableDisplayConfig(
-        columns=(
-            "Codigo",
-            "Produto",
-            "Familia",
-            "SubFamilia",
-            "Unidade",
-            "UnVenda",
-            "UnInventario",
-            "UnProducao",
-        ),
-        query=(
-            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
-            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
-        ),
-        table_kind="netbo",
-    ),
-    "wharehouses": TableDisplayConfig(
-        columns=(
-            "Codigo",
-            "Tipo",
-            "Nome",
-            "Nif",
-            "TipoFo",
-            "EmailDoResponsavel",
-        ),
-        query=(
-            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
-        ),
-        table_kind="wharehouses",
-    ),
-    "barcodes": TableDisplayConfig(
-        columns=(
-            "ArticleFoId",
-            "ArticleName",
-            "Barcode",
-            "UnidadeName",
-            "Código de Barras (Imagem)",
-            "Tipo de Código de Barras",
-        ),
-        query=(
-            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
-        ),
-        table_kind="barcodes",
-    ),
-}
-
-
 MENU_STYLESHEET = """
 QMenu {
     background-color: rgba(245, 222, 179, 160);
@@ -523,6 +465,7 @@ class MainWindow(QMainWindow):
             "GTIN14": "GTIN-14",
             "GS1-128": "GS1-128",
             "GS1DataBar": "GS1 DataBar",
+            "SSCC": "SSCC",
             "Code128": "Code128",
         }
         label = friendly_labels.get(barcode_type)

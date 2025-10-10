@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Optional
+import re
+from typing import Iterable, Optional
+
+
+_GROUP_SEPARATOR = "\x1d"
 
 
 def _calculate_gs1_mod10_check_digit(digits: str) -> int:
@@ -17,6 +21,80 @@ def _calculate_gs1_mod10_check_digit(digits: str) -> int:
 
 def _is_valid_numeric(code: str, length: int) -> bool:
     return len(code) == length and code.isdigit()
+
+
+def _normalize_group_separators(value: str) -> str:
+    """Replace common human encodings of the GS1 FNC1 separator by ``\x1d``."""
+
+    normalized = value
+    for token in ("[GS]", "<GS>", "{GS}", "|GS|"):
+        normalized = normalized.replace(token, _GROUP_SEPARATOR)
+    normalized = normalized.replace("\\x1d", _GROUP_SEPARATOR)
+    normalized = normalized.replace("\\u001d", _GROUP_SEPARATOR)
+    normalized = normalized.replace("\u001d", _GROUP_SEPARATOR)
+    normalized = normalized.replace("\u241d", _GROUP_SEPARATOR)  # visual symbol ␝
+    normalized = normalized.replace(chr(29), _GROUP_SEPARATOR)
+    normalized = re.sub(r"(?<=\d)T(?=\d)", _GROUP_SEPARATOR, normalized)
+    return normalized
+
+
+def _iter_digit_groups(value: str) -> Iterable[str]:
+    """Yield groups of consecutive digits within ``value``."""
+
+    for match in re.finditer(r"\d+", value):
+        yield match.group(0)
+
+
+def _longest_digit_group(value: str) -> str:
+    return max(_iter_digit_groups(value), default="", key=len)
+
+
+def _looks_like_gs1_ai_stream(normalized: str, digits: str) -> bool:
+    """Return ``True`` when ``value`` looks like a GS1 AI encoded data string."""
+
+    if "(" in normalized and ")" in normalized:
+        return True
+    if _GROUP_SEPARATOR in normalized:
+        return True
+
+    if len(digits) < 16 or not digits.startswith(("01", "02", "00")):
+        return False
+
+    if digits.startswith("00") and len(digits) == 18:
+        # SSCC encodes AI 00 but does not include additional elements.
+        return False
+
+    ai_markers = (
+        "10",
+        "11",
+        "13",
+        "15",
+        "17",
+        "20",
+        "21",
+        "23",
+        "24",
+        "25",
+        "30",
+        "37",
+        "310",
+        "311",
+        "312",
+        "313",
+        "314",
+        "315",
+        "316",
+        "320",
+        "330",
+        "392",
+        "393",
+    )
+    if len(digits) > 16:
+        for marker in ai_markers:
+            if marker in digits[2:]:
+                return True
+        return True
+    return False
 
 
 def is_valid_ean13(code: str) -> bool:
@@ -86,6 +164,14 @@ def is_valid_upce(code: str) -> bool:
     return _expand_upce_to_upca(code) is not None
 
 
+def is_valid_sscc(code: str) -> bool:
+    """Return ``True`` when ``code`` is a valid Serial Shipping Container Code."""
+
+    if not _is_valid_numeric(code, 18):
+        return False
+    return _calculate_gs1_mod10_check_digit(code[:-1]) == int(code[-1])
+
+
 def classify_gs1_barcode(code: Optional[str]) -> str:
     """Return the most likely GS1 barcode type for the provided value."""
 
@@ -96,22 +182,35 @@ def classify_gs1_barcode(code: Optional[str]) -> str:
     if not value:
         return "Code128"
 
-    if value.startswith("]C1"):
+    normalized = _normalize_group_separators(value)
+    digit_group = _longest_digit_group(normalized)
+    digits_only = digit_group if digit_group else ""
+
+    if normalized.startswith("]C1"):
         return "GS1-128"
 
-    if "\x1d" in value or ("(" in value and ")" in value):
+    joined_digits = "".join(ch for ch in normalized if ch.isdigit())
+    if _looks_like_gs1_ai_stream(normalized, joined_digits):
         return "GS1DataBar"
 
-    if value.isdigit():
-        length = len(value)
+    if digits_only:
+        length = len(digits_only)
+        if length == 18 and digits_only.startswith("00"):
+            if is_valid_sscc(digits_only):
+                return "SSCC"
+            return "Code128"
         if length == 14:
             return "GTIN14"
         if length == 13:
             return "EAN13"
         if length == 12:
             return "UPCA"
+        if length == 11:
+            padded = "0" + digits_only
+            if is_valid_upca(padded):
+                return "UPCA"
         if length == 8:
-            if is_valid_upce(value):
+            if is_valid_upce(digits_only):
                 return "UPCE"
             return "EAN8"
 
@@ -125,5 +224,5 @@ __all__ = [
     "is_valid_gtin14",
     "is_valid_upca",
     "is_valid_upce",
+    "is_valid_sscc",
 ]
-
