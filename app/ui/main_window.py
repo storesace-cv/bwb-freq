@@ -147,19 +147,26 @@ class MainWindow(QMainWindow):
         if APP_ICON.exists():
             self.setWindowIcon(QIcon(str(APP_ICON)))
         self.setFixedSize(1024, 768)
+        self.setAttribute(Qt.WA_TranslucentBackground)
         self.setStyleSheet(
-            "QMainWindow { background-color: rgba(245, 245, 245, 0.10); }"
-            "#central-widget { background-color: rgba(255, 255, 255, 0.10); }"
+            "QMainWindow {"
+            "    background-color: rgba(245, 245, 245, 0.10);"
+            "}"
+            "#central-widget {"
+            "    background-color: rgba(255, 255, 255, 0.10);"
+            "}"
             "QTableWidget {"
             "    background-color: rgba(255, 255, 255, 0.10);"
             "    alternate-background-color: rgba(240, 240, 240, 0.10);"
-            "    gridline-color: #d0d0d0;"
+            "    gridline-color: rgba(208, 208, 208, 0.50);"
             "}"
         )
         init_db()
 
         central = QWidget(self)
         central.setObjectName("central-widget")
+        central.setAttribute(Qt.WA_StyledBackground, True)
+        central.setAutoFillBackground(False)
 
         layout = QVBoxLayout(central)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -187,6 +194,8 @@ class MainWindow(QMainWindow):
         layout.addLayout(top_row)
 
         self.workspace = QWidget(self)
+        self.workspace.setAttribute(Qt.WA_StyledBackground, True)
+        self.workspace.setAutoFillBackground(False)
         self.workspace_layout = QVBoxLayout(self.workspace)
         self.workspace_layout.setContentsMargins(32, 24, 32, 32)
         self.workspace_layout.setSpacing(16)
@@ -211,6 +220,9 @@ class MainWindow(QMainWindow):
         self.table_widget.setWordWrap(False)
         self.table_widget.setTextElideMode(Qt.ElideRight)
         self.table_widget.verticalHeader().setVisible(False)
+        self.table_widget.setAttribute(Qt.WA_StyledBackground, True)
+        self.table_widget.setAutoFillBackground(False)
+        self.table_widget.viewport().setAutoFillBackground(False)
         header = self.table_widget.horizontalHeader()
         header.setStretchLastSection(False)
         self.workspace_layout.addWidget(self.table_widget)
