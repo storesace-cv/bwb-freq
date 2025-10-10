@@ -163,6 +163,8 @@ echo "🔎 A validar plugin 'cocoa' (necessário para GUI)…"
 if ! QT_QPA_PLATFORM=cocoa "$PYBIN" - >>"$LOGFILE" 2>&1 <<'PY'
 import os, sys, pathlib, ctypes
 from PySide6.QtCore import QLibraryInfo
+from PySide6.QtGui import QGuiApplication
+
 plugins = pathlib.Path(QLibraryInfo.path(QLibraryInfo.PluginsPath))
 plat = plugins / "platforms"
 cocoa = plat / "libqcocoa.dylib"
@@ -171,12 +173,22 @@ print("[prefight-cocoa] cocoa:", cocoa, "exists:", cocoa.exists())
 if not cocoa.exists():
     print("[prefight-cocoa] libqcocoa.dylib inexistente")
     sys.exit(10)
+
 try:
     ctypes.CDLL(str(cocoa))
-    print("COCOA_OK")
 except OSError as e:
-    print("COCOA_FAIL:", e)
+    print("COCOA_FAIL_DLOPEN:", e)
     sys.exit(11)
+
+try:
+    print("[prefight-cocoa] A criar QGuiApplication para validar carregamento…")
+    app = QGuiApplication([])
+except Exception as e:
+    print("COCOA_FAIL_QAPP:", e)
+    sys.exit(12)
+else:
+    app.quit()
+    print("COCOA_OK")
 PY
 then
   echo "❌ Condições para GUI **não estão reunidas**."
