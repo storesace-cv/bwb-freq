@@ -110,4 +110,5 @@ CREATE TABLE IF NOT EXISTS ImportsLog (
 );
 
 CREATE INDEX IF NOT EXISTS idx_articlebarcodes_foid ON ArticleBarcodes(ArticleFoId);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_article_barcodes_article_barcode ON ArticleBarcodes(ArticleFoId, Barcode);
 CREATE INDEX IF NOT EXISTS idx_requisition_lines_req ON RequisitionLines(RequisitionId);

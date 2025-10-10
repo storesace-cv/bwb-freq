@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import csv
 import json
+import sqlite3
 from pathlib import Path
 
 import pytest
+
+from app.services.importer import BARCODE_UNIQUE_INDEX_NAME
 
 
 def _read_csv(path: Path) -> list[dict]:
@@ -87,3 +90,57 @@ def test_import_wharehouses_requires_codigo(app_services, dataset_paths):
     invalid = dataset_paths.invalid_warehouses
     with pytest.raises(ValueError):
         importer.import_wharehouses(str(invalid))
+
+
+def test_import_article_barcodes_is_idempotent(app_services, dataset_paths):
+    importer = app_services.importer
+    db = app_services.db
+
+    importer.import_article_barcodes(str(dataset_paths.barcodes))
+    importer.import_article_barcodes(str(dataset_paths.barcodes))
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT ArticleFoId, Barcode FROM ArticleBarcodes ORDER BY ArticleFoId"
+        ).fetchall()
+    assert [(row["ArticleFoId"], row["Barcode"]) for row in rows] == [("A002", "ABC12345")]
+
+
+def test_remove_duplicate_article_barcodes(app_services, dataset_paths):
+    importer = app_services.importer
+    db = app_services.db
+
+    importer.import_article_barcodes(str(dataset_paths.barcodes))
+
+    with db.get_connection() as conn:
+        conn.execute(f"DROP INDEX IF EXISTS {BARCODE_UNIQUE_INDEX_NAME}")
+        conn.execute(
+            "INSERT INTO ArticleBarcodes (ArticleFoId, ArticleName, Barcode, UnidadeName) "
+            "VALUES (?, ?, ?, ?)",
+            ("A002", "Café Torrado", "ABC12345", "UN"),
+        )
+        conn.execute(
+            "INSERT INTO ArticleBarcodes (ArticleFoId, ArticleName, Barcode, UnidadeName) "
+            "VALUES (?, ?, ?, ?)",
+            ("A002", "Café Torrado", "ABC12345", "UN"),
+        )
+        conn.commit()
+
+    assert importer.count_duplicate_article_barcodes() == 2
+    removed = importer.remove_duplicate_article_barcodes()
+    assert removed == 2
+    assert importer.count_duplicate_article_barcodes() == 0
+
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT ArticleFoId, Barcode FROM ArticleBarcodes ORDER BY ArticleFoId"
+        ).fetchall()
+    assert [(row["ArticleFoId"], row["Barcode"]) for row in rows] == [("A002", "ABC12345")]
+
+    with pytest.raises(sqlite3.IntegrityError):
+        with db.get_connection() as conn:
+            conn.execute(
+                "INSERT INTO ArticleBarcodes (ArticleFoId, ArticleName, Barcode, UnidadeName) "
+                "VALUES (?, ?, ?, ?)",
+                ("A002", "Café Torrado", "ABC12345", "UN"),
+            )

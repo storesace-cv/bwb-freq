@@ -54,7 +54,40 @@ class TableDisplayConfig:
 BARCODE_DISPLAY_LIMIT = 14
 
 
+HOME_TABLE_ID = "home_barcodes"
+
+
 TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
+    HOME_TABLE_ID: TableDisplayConfig(
+        title="Artigos | Códigos de Barras",
+        columns=(
+            "ArticleFoId",
+            "ArticleName",
+            "Barcode",
+            "UnidadeName",
+            "Familia",
+            "SubFamilia",
+        ),
+        query=(
+            "SELECT "
+            "    ab.ArticleFoId, "
+            "    ab.ArticleName, "
+            "    ab.Barcode, "
+            "    ab.UnidadeName, "
+            "    na.Familia, "
+            "    na.SubFamilia "
+            "FROM ArticleBarcodes AS ab "
+            "LEFT JOIN NetboArticles AS na ON na.Codigo = ab.ArticleFoId "
+            "WHERE ab.ArticleFoId NOT IN ("
+            "    SELECT DISTINCT ft.Componente "
+            "    FROM FichasTecnicas AS ft "
+            "    JOIN NetboArticles AS generic ON generic.Codigo = ft.ProdVendaGenerico "
+            "    WHERE IFNULL(generic.Generico, 0) = 1"
+            ") "
+            "ORDER BY ab.ArticleName COLLATE NOCASE"
+        ),
+        table_kind="barcodes",
+    ),
     "netbo": TableDisplayConfig(
         title="Artigos",
         columns=(
@@ -327,6 +360,7 @@ class MainWindow(QMainWindow):
         self._install_drag_handle(self.title_label)
 
         self._configure_menu()
+        self._show_table(HOME_TABLE_ID)
 
     def _configure_menu(self) -> None:
         menu = QMenu(self.menu_button)
