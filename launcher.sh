@@ -6,18 +6,50 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT_DIR"
 
 # 0) Python do venv (obrigatório)
-if [[ ! -x ".venv/bin/python" ]]; then
-  echo "❌ Não encontrei .venv/bin/python. Cria e ativa o venv primeiro." >&2
-  echo "   python3 -m venv .venv && source .venv/bin/activate && pip install -r requirements.txt" >&2
+UNAME_OUTPUT="$(uname -s 2>/dev/null || echo unknown)"
+
+PYTHON_CANDIDATES=(
+  ".venv/bin/python"
+  ".venv/bin/python3"
+)
+
+case "$UNAME_OUTPUT" in
+  MINGW*|MSYS*|CYGWIN*|Windows_NT)
+    PYTHON_CANDIDATES+=(
+      ".venv/Scripts/python.exe"
+      ".venv/Scripts/python"
+    )
+    ;;
+esac
+
+if [[ "${OS:-}" == "Windows_NT" ]]; then
+  PYTHON_CANDIDATES+=(
+    ".venv/Scripts/python.exe"
+    ".venv/Scripts/python"
+  )
+fi
+
+PYBIN=""
+for candidate in "${PYTHON_CANDIDATES[@]}"; do
+  if [[ -x "$candidate" ]]; then
+    PYBIN="$candidate"
+    break
+  fi
+done
+
+if [[ -z "$PYBIN" ]]; then
+  echo "❌ Não encontrei o Python do venv (.venv). Cria e ativa o venv primeiro." >&2
+  echo "   python3 -m venv .venv" >&2
+  echo "   source .venv/bin/activate   # Linux/macOS" >&2
+  echo "   .venv\\Scripts\\activate    # Windows (PowerShell/CMD)" >&2
+  echo "   pip install -r requirements.txt" >&2
   exit 1
 fi
-PYBIN=".venv/bin/python"
 
 # 1) Limpar ambiente Qt ruidoso
 unset QT_PLUGIN_PATH QT_QPA_PLATFORM_PLUGIN_PATH DYLD_LIBRARY_PATH DYLD_FRAMEWORK_PATH QT_DEBUG_PLUGINS QT_MAC_WANTS_LAYER
 
 QT_PLATFORM_DEFAULT=""
-UNAME_OUTPUT="$(uname -s 2>/dev/null || echo unknown)"
 case "$UNAME_OUTPUT" in
   Darwin)
     QT_PLATFORM_DEFAULT="cocoa"
