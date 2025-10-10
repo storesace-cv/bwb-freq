@@ -26,6 +26,9 @@ case "$UNAME_OUTPUT" in
   Linux)
     QT_PLATFORM_DEFAULT="xcb"
     unset QT_MAC_WANTS_LAYER
+    if [[ -z "${QT_QPA_PLATFORM:-}" && -z "${DISPLAY:-}" && -z "${WAYLAND_DISPLAY:-}" ]]; then
+      QT_PLATFORM_DEFAULT="offscreen"
+    fi
     ;;
   MINGW*|MSYS*|CYGWIN*)
     QT_PLATFORM_DEFAULT="windows"
