@@ -1,16 +1,11 @@
-"""PySide6 application entry-point for the requisitions UI."""
+"""wxPython application entry-point for the requisitions UI."""
 from __future__ import annotations
 
 import logging
 import os
-from pathlib import Path
 import sys
-from typing import Iterable, Sequence
 
-import PySide6
-from PySide6.QtCore import QCoreApplication, QLibraryInfo, Qt
-from PySide6.QtGui import QIcon
-from PySide6.QtWidgets import QApplication
+import wx
 
 from app.ui.assets import APP_ICON
 from app.ui.main_window import MainWindow
@@ -28,7 +23,6 @@ def _setup_debug_logger() -> logging.Logger | None:
 
     logger = logging.getLogger("freq.debugger")
     if logger.handlers:
-        # Reuse existing handler to avoid duplicate lines when reimported.
         return logger
 
     logger.setLevel(logging.DEBUG)
@@ -58,23 +52,14 @@ def _debug_exception(message: str) -> None:
         DEBUGGER_LOGGER.exception(message)
 
 
-def _format_paths(paths: Iterable[Path]) -> str:
-    parts = [str(path) for path in paths]
-    return ", ".join(parts) if parts else "<vazio>"
-
-
 def _log_environment_snapshot() -> None:
     if DEBUGGER_LOGGER is None:
         return
 
     _debug_log(f"sys.executable={sys.executable}")
     _debug_log(f"sys.argv={sys.argv}")
-    _debug_log(f"PySide6.__version__={getattr(PySide6, '__version__', 'desconhecida')}")
+    _debug_log(f"wx.version={wx.version()}")
     relevant_vars = [
-        "QT_QPA_PLATFORM",
-        "QT_PLUGIN_PATH",
-        "QT_QPA_PLATFORM_PLUGIN_PATH",
-        "BWB_QT_PLATFORM_DEFAULT",
         "FREQ_DEBUGGER_LOG",
     ]
     for var in relevant_vars:
@@ -87,207 +72,73 @@ if DEBUGGER_LOGGER is not None:
     _log_environment_snapshot()
 
 
-def _dedupe_paths(paths: Iterable[str]) -> list[str]:
-    """Return ``paths`` without duplicates while preserving order."""
+class FrequencyApp(wx.App):
+    """wxPython application that bootstraps the requisitions UI."""
 
-    seen: set[str] = set()
-    ordered: list[str] = []
-    for path in paths:
-        if not path:
-            continue
-        if path not in seen:
-            seen.add(path)
-            ordered.append(path)
-    return ordered
+    def __init__(self) -> None:
+        super().__init__(clearSigInt=True)
+        self._main_window: MainWindow | None = None
+        self._splash: SplashScreen | None = None
 
+    def OnInit(self) -> bool:  # type: ignore[override]
+        _debug_log("Inicialização da aplicação wxPython iniciada.")
+        try:
+            self._initialise_windows()
+        except Exception:  # pragma: no cover - defensive UI bootstrap guard
+            _debug_exception("Falha ao inicializar a interface wxPython")
+            raise
+        return True
 
-def _candidate_plugin_roots() -> list[Path]:
-    """Return Qt plugin root directories to probe for platform libraries."""
+    def _initialise_windows(self) -> None:
+        self.SetAppDisplayName("Requisições Internas — MVP")
 
-    candidates: list[Path] = []
-
-    qt_plugins = Path(QLibraryInfo.path(QLibraryInfo.LibraryPath.PluginsPath))
-    if qt_plugins.is_dir():
-        candidates.append(qt_plugins)
-
-    package_plugins = Path(PySide6.__file__).resolve().parent / "Qt" / "plugins"
-    if package_plugins.is_dir():
-        candidates.append(package_plugins)
-
-    unique_candidates: list[Path] = []
-    seen: set[Path] = set()
-    for candidate in candidates:
-        if candidate not in seen:
-            seen.add(candidate)
-            unique_candidates.append(candidate)
-    return unique_candidates
-
-
-def _candidate_platform_dirs(plugin_roots: Iterable[Path]) -> list[Path]:
-    """Return directories that contain Qt *platform* plugins."""
-
-    platforms: list[Path] = []
-    seen: set[Path] = set()
-    for root in plugin_roots:
-        # Typical layout is ``plugins/platforms``. Some environments already
-        # expose the ``platforms`` folder directly as a library path.
-        direct = root / "platforms"
-        if direct.is_dir() and direct not in seen:
-            seen.add(direct)
-            platforms.append(direct)
-        elif root.name == "platforms" and root not in seen:
-            seen.add(root)
-            platforms.append(root)
-    return platforms
-
-
-def _merge_env_paths(
-    env_var: str,
-    new_paths: Sequence[Path],
-    *,
-    allow_multiple: bool = True,
-) -> None:
-    """Merge ``new_paths`` into ``env_var`` while keeping existing entries."""
-
-    if not new_paths:
-        return
-
-    existing_raw = os.environ.get(env_var)
-    existing_parts = existing_raw.split(os.pathsep) if existing_raw else []
-    merged = _dedupe_paths([str(path) for path in new_paths] + existing_parts)
-    if not merged:
-        return
-
-    if allow_multiple:
-        os.environ[env_var] = os.pathsep.join(merged)
-    else:
-        # Some Qt environment variables (notably QT_QPA_PLATFORM_PLUGIN_PATH)
-        # only support a single directory. Preserve user-provided values if
-        # present, otherwise use the first detected location.
-        if existing_parts:
-            os.environ[env_var] = existing_parts[0]
-        else:
-            os.environ[env_var] = merged[0]
-
-    if DEBUGGER_LOGGER is not None:
-        _debug_log(f"{env_var}={os.environ.get(env_var)}")
-
-
-def _ensure_qt_plugin_path() -> None:
-    """Ensure the Qt platform plugins directory is discoverable.
-
-    Some macOS environments fail to locate the ``cocoa`` platform plugin on
-    subsequent launches when the library path cache is lost. We add the
-    runtime plugin directories exposed by Qt and the PySide6 package to both
-    Qt's internal library search paths and the conventional environment
-    variables so that the platform plugin remains available even after
-    restarting the application.
-    """
-
-    plugin_roots = _candidate_plugin_roots()
-    if not plugin_roots:
-        _debug_log("Não foram encontrados diretórios de plugins Qt.")
-        return
-
-    if DEBUGGER_LOGGER is not None:
-        _debug_log(f"Diretórios raiz de plugins Qt: {_format_paths(plugin_roots)}")
-
-    existing_paths = {Path(p) for p in QCoreApplication.libraryPaths()}
-    for plugin_dir in plugin_roots:
-        if plugin_dir not in existing_paths:
-            QCoreApplication.addLibraryPath(str(plugin_dir))
-
-    platform_dirs = _candidate_platform_dirs(plugin_roots)
-    if DEBUGGER_LOGGER is not None:
-        _debug_log(f"Diretórios de plataformas Qt: {_format_paths(platform_dirs)}")
-    for platform_dir in platform_dirs:
-        if platform_dir not in existing_paths:
-            QCoreApplication.addLibraryPath(str(platform_dir))
-
-    _merge_env_paths("QT_PLUGIN_PATH", plugin_roots)
-    _merge_env_paths(
-        "QT_QPA_PLATFORM_PLUGIN_PATH",
-        platform_dirs,
-        allow_multiple=False,
-    )
-
-    if DEBUGGER_LOGGER is not None:
-        library_paths = [Path(p) for p in QCoreApplication.libraryPaths()]
-        _debug_log(f"QCoreApplication.libraryPaths={_format_paths(library_paths)}")
-
-
-def run(argv: Sequence[str] | None = None) -> int:
-    """Start the Qt application.
-
-    Parameters
-    ----------
-    argv:
-        Optional sequence of command line arguments. Only used to initialise the
-        QApplication instance. Defaults to ``sys.argv`` when ``None``.
-    """
-
-    args = list(argv) if argv is not None else list(sys.argv)
-    _debug_log(f"run() iniciado com argumentos: {args}")
-
-    try:
-        _ensure_qt_plugin_path()
-        _debug_log("Diretórios de plugins Qt preparados.")
-
-        translucent_attr = getattr(
-            Qt.ApplicationAttribute, "AA_TranslucentBackground", None
-        )
-        if translucent_attr is None:
-            translucent_attr = getattr(Qt, "AA_TranslucentBackground", None)
-        if translucent_attr is not None:
-            QCoreApplication.setAttribute(translucent_attr, True)
-            _debug_log("Atributo de fundo translúcido activado.")
-
-        app = QApplication(args)
-        _debug_log("QApplication instanciada.")
+        main_window = MainWindow()
+        self._main_window = main_window
+        self.SetTopWindow(main_window)
 
         if APP_ICON.exists():
-            app.setWindowIcon(QIcon(str(APP_ICON)))
-            _debug_log(f"Ícone principal aplicado: {APP_ICON}")
+            try:
+                icon = wx.Icon(str(APP_ICON))
+            except Exception:  # pragma: no cover - icon loading issues
+                icon = None
+            if icon and icon.IsOk():
+                main_window.SetIcon(icon)
+
+        splash = SplashScreen(on_click=self._show_main_window)
+        if splash.is_available:
+            self._splash = splash
+            splash.Show()
+            main_window.Hide()
         else:
-            _debug_log("Ícone principal não encontrado; a aplicação continuará sem ícone.", level=logging.WARNING)
+            self._show_main_window()
 
-        app.setStyleSheet(
-            "QMainWindow { background: transparent; }\n"
-            "QWidget { background: transparent; }"
-        )
-        _debug_log("Folha de estilos aplicada ao QApplication.")
+    def _show_main_window(self) -> None:
+        if self._splash is not None:
+            self._splash.Destroy()
+            self._splash = None
 
-        splash = SplashScreen()
-        splash.show()
-        _debug_log("SplashScreen apresentada.")
+        if self._main_window is not None:
+            _debug_log("A abrir a janela principal.")
+            self._main_window.Centre()
+            self._main_window.Show()
 
-        window: MainWindow | None = None
 
-        def _launch_main_window() -> None:
-            nonlocal window
-            if window is None:
-                splash.close()
-                _debug_log("SplashScreen encerrada; a criar MainWindow.")
-                window = MainWindow()
-                window.show()
-                _debug_log("MainWindow apresentada.")
+def run() -> int:
+    """Start the wxPython main loop."""
 
-        splash.clicked.connect(_launch_main_window)
+    app = FrequencyApp()
+    app.MainLoop()
+    return 0
 
-        exit_code = app.exec()
-        _debug_log(f"Loop de eventos Qt terminado com código {exit_code}.")
-        return exit_code
-    except Exception:
-        _debug_exception("Erro inesperado durante run().")
+
+def main() -> int:
+    """Entry point compatible with ``python -m app.ui``."""
+
+    try:
+        return run()
+    except Exception:  # pragma: no cover - ensure logging of unexpected failures
+        _debug_exception("Erro fatal na aplicação wxPython")
         raise
 
 
-def main(argv: Sequence[str] | None = None) -> int:
-    _debug_log("main() iniciado.")
-    exit_code = run(argv)
-    _debug_log(f"main() concluído com código {exit_code}.")
-    return exit_code
-
-
-if __name__ == "__main__":  # pragma: no cover - manual invocation helper
-    raise SystemExit(main())
+__all__ = ["main", "run"]

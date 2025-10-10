@@ -1,74 +1,77 @@
-"""Utilities for managing transparent backgrounds in Qt widgets."""
+"""Helper utilities for dealing with background images in wxPython widgets."""
 from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, Qt
-from PySide6.QtGui import QPalette, QPixmap
-from PySide6.QtWidgets import QLabel, QWidget
+import wx
 
 
-def ensure_transparent(widget: QWidget) -> None:
-    """Apply the attributes required for a fully transparent widget."""
+def ensure_transparent(window: wx.Window) -> None:
+    """Best-effort attempt to make *window* paint with a transparent background."""
 
-    widget.setAttribute(Qt.WA_TranslucentBackground, True)
-    widget.setAttribute(Qt.WA_NoSystemBackground, True)
-    widget.setAttribute(Qt.WA_OpaquePaintEvent, False)
-    widget.setAttribute(Qt.WA_StyledBackground, True)
-    widget.setAutoFillBackground(False)
-
-    palette = widget.palette()
-    palette.setColor(QPalette.Window, Qt.transparent)
-    palette.setColor(QPalette.Base, Qt.transparent)
-    palette.setColor(QPalette.Button, Qt.transparent)
-    widget.setPalette(palette)
-
-    stylesheet = widget.styleSheet().strip()
-    transparent_rule = "background-color: rgba(0, 0, 0, 0);"
-    if transparent_rule not in stylesheet:
-        if stylesheet:
-            if not stylesheet.rstrip().endswith(";"):
-                stylesheet = f"{stylesheet};"
-            stylesheet = f"{stylesheet}\n{transparent_rule}"
-        else:
-            stylesheet = transparent_rule
-        widget.setStyleSheet(stylesheet)
+    window.SetBackgroundStyle(wx.BG_STYLE_PAINT)
 
 
-class BackgroundLayer(QObject):
-    """Keep a QLabel sized to its host to display a background pixmap."""
+class BackgroundLayer:
+    """Keep a background bitmap scaled to the hosting window size."""
 
-    def __init__(self, host: QWidget, image_path: Path, object_name: str = "background-layer") -> None:
-        super().__init__(host)
+    def __init__(self, host: wx.Window, image_path: Path, name: str = "background") -> None:
         self.host = host
         self.image_path = image_path
-        self.object_name = object_name
+        self.name = name
+        self._original_bitmap: wx.Bitmap | None = None
+        self._label: wx.StaticBitmap | None = None
 
-        self._label = QLabel(self.host)
-        self._label.setObjectName(self.object_name)
-        self._label.setAttribute(Qt.WA_TranslucentBackground, True)
-        self._label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._label.setStyleSheet("background: transparent;")
+        if not image_path.exists():
+            return
 
-        pixmap = QPixmap(str(self.image_path))
-        self._label.setPixmap(pixmap)
-        self._label.setScaledContents(True)
-        self._label.lower()
+        try:
+            bitmap = wx.Bitmap(str(image_path))
+        except Exception:  # pragma: no cover - invalid/corrupt image
+            return
 
-        self.host.installEventFilter(self)
+        if not bitmap.IsOk():
+            return
+
+        self._original_bitmap = bitmap
+        self._label = wx.StaticBitmap(host, bitmap=bitmap)
+        self._label.SetName(self.name)
+        self._label.Disable()
+        self._label.Move((0, 0))
+        self._label.Lower()
+
+        self.host.Bind(wx.EVT_SIZE, self._on_host_size)
+        self.host.Bind(wx.EVT_WINDOW_DESTROY, self._on_host_destroy)
         self._sync_to_host()
 
     @property
-    def label(self) -> QLabel:
-        """Expose the internal QLabel for additional customisation."""
+    def label(self) -> wx.StaticBitmap | None:
+        """Expose the underlying ``wx.StaticBitmap`` for customisation."""
 
         return self._label
 
-    def eventFilter(self, obj: QObject, event: QEvent) -> bool:  # type: ignore[override]
-        if obj is self.host and event.type() in {QEvent.Resize, QEvent.Show}:
-            self._sync_to_host()
-        return super().eventFilter(obj, event)
+    def _on_host_size(self, event: wx.Event) -> None:
+        self._sync_to_host()
+        event.Skip()
+
+    def _on_host_destroy(self, _event: wx.Event) -> None:
+        if self._label is not None:
+            self._label.Destroy()
+            self._label = None
 
     def _sync_to_host(self) -> None:
-        self._label.resize(self.host.size())
+        if self._label is None or self._original_bitmap is None:
+            return
 
+        size = self.host.GetClientSize()
+        if size.width <= 0 or size.height <= 0:
+            return
+
+        image = self._original_bitmap.ConvertToImage()
+        scaled = image.Scale(size.width, size.height, wx.IMAGE_QUALITY_HIGH)
+        self._label.SetBitmap(wx.Bitmap(scaled))
+        self._label.SetSize(size)
+        self._label.Move((0, 0))
+
+
+__all__ = ["BackgroundLayer", "ensure_transparent"]
