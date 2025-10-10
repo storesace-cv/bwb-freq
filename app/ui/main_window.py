@@ -6,7 +6,7 @@ from io import BytesIO
 from pathlib import Path
 from typing import Callable
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QPixmap
 from PySide6.QtWidgets import (
     QAbstractItemView,
@@ -381,6 +381,7 @@ class MainWindow(QMainWindow):
 
         self._configure_header(columns, table_kind)
         self.table_widget.setVisible(True)
+        self.table_widget.viewport().update()
         if rows:
             self.workspace_hint.setVisible(False)
             self.workspace_hint.setText(self.workspace_hint_default_text)
@@ -426,6 +427,7 @@ class MainWindow(QMainWindow):
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
             self._barcode_image_column = barcode_image_index
             self._resize_barcode_images(barcode_image_index)
+            QTimer.singleShot(0, lambda: self._resize_barcode_images(barcode_image_index))
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
@@ -503,18 +505,17 @@ class MainWindow(QMainWindow):
 
         pixmap = self._get_barcode_pixmap(barcode_value)
         if pixmap is not None:
-            scaled = pixmap.scaledToHeight(64, Qt.SmoothTransformation)
-            label.setPixmap(scaled)
-            label.setToolTip(barcode_value or "")
-            label.setMinimumHeight(scaled.height())
-            label.setMinimumWidth(scaled.width())
             label._orig_pixmap = pixmap  # type: ignore[attr-defined]
-            self._barcode_label_entries.append((row_index, label))
+            label.setPixmap(pixmap)
+            label.setToolTip(barcode_value or "")
             current_height = self.table_widget.rowHeight(row_index)
-            desired_height = scaled.height() + 8
-            if desired_height > current_height:
-                self.table_widget.setRowHeight(row_index, desired_height)
-            width = scaled.width()
+            natural_height = min(pixmap.height(), 120)
+            desired_height = max(natural_height + 16, current_height)
+            self.table_widget.setRowHeight(row_index, desired_height)
+            label.setMinimumHeight(natural_height)
+            label.setMinimumWidth(min(pixmap.width(), self.table_widget.columnWidth(col_index) or pixmap.width()))
+            self._barcode_label_entries.append((row_index, label))
+            width = pixmap.width()
         else:
             label.setText("—")
             if barcode_value:
@@ -538,17 +539,12 @@ class MainWindow(QMainWindow):
             if not isinstance(pixmap, QPixmap) or pixmap.isNull():
                 continue
 
-            scaled = pixmap.scaled(
-                available_width,
-                96,
-                Qt.KeepAspectRatio,
-                Qt.SmoothTransformation,
-            )
+            scaled = pixmap.scaledToWidth(available_width, Qt.SmoothTransformation)
             label.setPixmap(scaled)
             label.setMinimumWidth(scaled.width())
             label.setMinimumHeight(scaled.height())
 
-            desired_height = scaled.height() + 8
+            desired_height = scaled.height() + 16
             if self.table_widget.rowHeight(row_index) < desired_height:
                 self.table_widget.setRowHeight(row_index, desired_height)
 
