@@ -97,6 +97,22 @@ PY
 export QT_PLUGIN_PATH="$PLUGINS_DIR"
 export QT_QPA_PLATFORM_PLUGIN_PATH="$PLUGINS_DIR/platforms"
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  QT_LIB_DIR="$("$PYBIN" - <<'PY'
+import pathlib, PySide6
+from PySide6.QtCore import QLibraryInfo
+lib = pathlib.Path(QLibraryInfo.path(QLibraryInfo.LibrariesPath))
+if not lib.exists():
+    lib = pathlib.Path(PySide6.__file__).resolve().parent / "Qt" / "lib"
+print(lib)
+PY
+)"
+  if [ -d "$QT_LIB_DIR" ]; then
+    export DYLD_LIBRARY_PATH="$QT_LIB_DIR${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+    export DYLD_FRAMEWORK_PATH="$QT_LIB_DIR${DYLD_FRAMEWORK_PATH:+:$DYLD_FRAMEWORK_PATH}"
+  fi
+fi
+
 # +------------------------------------------------------------------------------------------------------------------+
 # |                         SMOKE TEST (DRY): DLOPEN DO PLUGIN DE PLATAFORMA                                         |
 # +------------------------------------------------------------------------------------------------------------------+
