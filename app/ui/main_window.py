@@ -97,6 +97,64 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
 }
 
 
+@dataclass(frozen=True)
+class TableDisplayConfig:
+    """Immutable configuration describing how to render a database table."""
+
+    columns: tuple[str, ...]
+    query: str
+    table_kind: str
+
+
+TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
+    "netbo": TableDisplayConfig(
+        columns=(
+            "Codigo",
+            "Produto",
+            "Familia",
+            "SubFamilia",
+            "Unidade",
+            "UnVenda",
+            "UnInventario",
+            "UnProducao",
+        ),
+        query=(
+            "SELECT Codigo, Produto, Familia, SubFamilia, Unidade, "
+            "UnVenda, UnInventario, UnProducao FROM NetboArticles"
+        ),
+        table_kind="netbo",
+    ),
+    "wharehouses": TableDisplayConfig(
+        columns=(
+            "Codigo",
+            "Tipo",
+            "Nome",
+            "Nif",
+            "TipoFo",
+            "EmailDoResponsavel",
+        ),
+        query=(
+            "SELECT Codigo, Tipo, Nome, Nif, TipoFo, EmailDoResponsavel FROM Wharehouses"
+        ),
+        table_kind="wharehouses",
+    ),
+    "barcodes": TableDisplayConfig(
+        columns=(
+            "ArticleFoId",
+            "ArticleName",
+            "Barcode",
+            "UnidadeName",
+            "Código de Barras (Imagem)",
+            "Tipo de Código de Barras",
+        ),
+        query=(
+            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
+        ),
+        table_kind="barcodes",
+    ),
+}
+
+
 MENU_STYLESHEET = """
 QMenu {
     background-color: rgba(245, 222, 179, 160);
@@ -418,10 +476,9 @@ class MainWindow(QMainWindow):
 
             for index, _ in enumerate(columns):
                 if index == barcode_image_index:
-                    header.setSectionResizeMode(index, QHeaderView.Interactive)
-                    minimum_width = max(self._barcode_image_max_width + 24, 220)
-                    self.table_widget.setColumnMinimumWidth(index, minimum_width)
-                    header.resizeSection(index, minimum_width)
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                    desired_width = max(self._barcode_image_max_width + 24, 220)
+                    header.resizeSection(index, desired_width)
                 elif index == barcode_type_index:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
