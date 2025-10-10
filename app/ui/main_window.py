@@ -242,12 +242,9 @@ class MainWindow(QMainWindow):
             "ArticleName",
             "Barcode",
             "UnidadeName",
-            "BrandNames",
-            "StoreNames",
         )
         query = (
-            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName, "
-            "BrandNames, StoreNames FROM ArticleBarcodes"
+            "SELECT ArticleFoId, ArticleName, Barcode, UnidadeName FROM ArticleBarcodes"
         )
         rows = self._fetch_rows(query)
         self._populate_table(columns, rows, table_kind="barcodes")
@@ -278,7 +275,7 @@ class MainWindow(QMainWindow):
                     if text:
                         item.setToolTip(text)
                 else:
-                    if text and column in {"ArticleName", "Barcode", "UnidadeName", "BrandNames", "StoreNames"}:
+                    if text and column in {"ArticleName", "Barcode", "UnidadeName"}:
                         item.setToolTip(text)
 
                 item.setText(display_text)
