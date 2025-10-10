@@ -1,65 +1,84 @@
-"""Splash screen with transparent background awaiting user interaction."""
+"""Splash screen implemented with wxPython."""
 from __future__ import annotations
 
-from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QPixmap
-from PySide6.QtWidgets import QDialog, QLabel
+from typing import Callable
+
+import wx
 
 from app.ui.assets import BACKGROUND_IMAGE, SPLASH_IMAGE
 from app.ui.background_utils import BackgroundLayer, ensure_transparent
 
 
-class SplashScreen(QDialog):
+class SplashScreen(wx.Frame):
     """Simple splash screen that closes when the user clicks it."""
 
-    clicked = Signal()
+    def __init__(self, *, on_click: Callable[[], None]) -> None:
+        style = wx.FRAME_NO_TASKBAR | wx.STAY_ON_TOP | wx.BORDER_NONE
+        super().__init__(None, title="Bem-vindo", style=style)
 
-    def __init__(self) -> None:
-        super().__init__()
+        self._callback = on_click
+        self._is_available = False
 
-        self.setObjectName("splash-screen")
-        self.setWindowFlags(Qt.SplashScreen | Qt.FramelessWindowHint)
-        ensure_transparent(self)
+        panel = wx.Panel(self)
+        ensure_transparent(panel)
 
-        self._background_layer = BackgroundLayer(
-            self, BACKGROUND_IMAGE, "splash-background"
-        )
-        # Keep a direct reference to the QLabel created by ``BackgroundLayer``
-        # so the rest of the widget can continue to work with the expected
-        # ``_background_label`` attribute used in resize handling.
-        self._background_label = self._background_layer.label
+        self._background = BackgroundLayer(panel, BACKGROUND_IMAGE, "splash-background")
 
-        pixmap = QPixmap(str(SPLASH_IMAGE))
-        self._label = QLabel(self)
-        self._label.setObjectName("splash-image")
-        self._label.setPixmap(pixmap)
-        self._label.setScaledContents(True)
-        self._label.setAttribute(Qt.WA_TranslucentBackground, True)
-        self._label.setAttribute(Qt.WA_TransparentForMouseEvents, True)
-        self._label.setStyleSheet("background: transparent;")
+        splash_bitmap = None
+        if SPLASH_IMAGE.exists():
+            try:
+                splash_bitmap = wx.Bitmap(str(SPLASH_IMAGE))
+            except Exception:  # pragma: no cover - invalid/corrupt file
+                splash_bitmap = None
 
-        background_pixmap = self._background_layer.label.pixmap()
-        if background_pixmap is not None and not background_pixmap.isNull():
-            self.setFixedSize(background_pixmap.size())
-        elif not pixmap.isNull():
-            self.setFixedSize(pixmap.size())
+        layout = wx.BoxSizer(wx.VERTICAL)
+        panel.SetSizer(layout)
+
+        if splash_bitmap and splash_bitmap.IsOk():
+            image = wx.StaticBitmap(panel, bitmap=splash_bitmap)
+            image.SetName("splash-image")
+            layout.AddStretchSpacer()
+            layout.Add(image, 0, wx.ALIGN_CENTER | wx.ALL, 0)
+            layout.AddStretchSpacer()
+            width, height = splash_bitmap.GetSize()
+            self.SetClientSize((width, height))
+            self._is_available = True
+        elif self._background.label is not None:
+            width, height = self._background.label.GetSize()
+            self.SetClientSize((width, height))
+            self._is_available = True
         else:
-            # Fallback size when the image fails to load.
-            self.setFixedSize(800, 500)
+            # Fallback size when no image could be loaded.
+            self.SetClientSize((800, 500))
 
-        self._background_label.resize(self.size())
-        self._label.resize(self.size())
-        self._label.raise_()
+        panel.Layout()
+        self._bind_events(panel)
 
-    # ------------------------------------------------------------------
-    # Qt event handlers
-    # ------------------------------------------------------------------
-    def resizeEvent(self, event) -> None:  # type: ignore[override]
-        super().resizeEvent(event)
-        self._background_label.resize(self.size())
-        self._label.resize(self.size())
+    @property
+    def is_available(self) -> bool:
+        return self._is_available
 
-    def mousePressEvent(self, event) -> None:  # type: ignore[override]
-        self.clicked.emit()
-        self.close()
-        event.accept()
+    def _bind_events(self, panel: wx.Panel) -> None:
+        panel.Bind(wx.EVT_LEFT_UP, self._handle_click)
+        panel.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+        panel.Bind(wx.EVT_CHAR_HOOK, self._handle_key)
+
+        if self._background.label is not None:
+            self._background.label.Bind(wx.EVT_LEFT_UP, self._handle_click)
+            self._background.label.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+
+    def _handle_click(self, _event: wx.Event) -> None:
+        self._invoke_callback()
+
+    def _handle_key(self, event: wx.KeyEvent) -> None:
+        if event.GetKeyCode() in {wx.WXK_ESCAPE, wx.WXK_RETURN, wx.WXK_SPACE}:
+            self._invoke_callback()
+        else:
+            event.Skip()
+
+    def _invoke_callback(self) -> None:
+        self.Hide()
+        try:
+            self._callback()
+        finally:
+            self.Destroy()
