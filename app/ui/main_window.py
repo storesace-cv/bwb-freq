@@ -36,7 +36,8 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
-from app.ui.assets import APP_ICON
+from app.ui.assets import APP_ICON, BACKGROUND_IMAGE
+from app.ui.background_utils import BackgroundLayer
 from app.utils.barcodes import classify_gs1_barcode
 
 
@@ -171,6 +172,8 @@ class MainWindow(QMainWindow):
             "}"
         )
         init_db()
+
+        self._background_layer = BackgroundLayer(self, BACKGROUND_IMAGE, "main-background")
 
         central = QWidget(self)
         central.setObjectName("central-widget")
