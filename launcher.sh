@@ -156,7 +156,7 @@ must_import = [
     "dotenv",   # python-dotenv
     "barcode",  # python-barcode
     "PIL",      # Pillow
-    "wx"        # wxPython
+    "tkinter",  # tkinter
 ]
 bad = []
 for m in must_import:
@@ -173,13 +173,11 @@ if bad:
     print("ERRO: Falha ao validar módulos:", bad, file=sys.stderr)
     sys.exit(2)
 
-# Teste mínimo wxPython sem MainLoop
-import wx
-app = wx.App(False)
-frame = wx.Frame(None)
-frame.Show(False)
-frame.Destroy()
-del app
+# Teste mínimo tkinter sem mainloop
+import tkinter as tk
+root = tk.Tk()
+root.update_idletasks()
+root.destroy()
 
 print("SMOKE_OK")
 PY
