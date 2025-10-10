@@ -332,6 +332,16 @@ class MainWindow(QMainWindow):
                     header.resizeSection(index, familia_width)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
+        elif table_kind == "barcodes":
+            barcode_image_header = "Código de Barras (Imagem)"
+            barcode_image_index = columns.index(barcode_image_header)
+
+            for index, _ in enumerate(columns):
+                if index == barcode_image_index:
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                    self.table_widget.setColumnMinimumWidth(index, 220)
+                else:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
         else:
             for index, _ in enumerate(columns):
                 header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
