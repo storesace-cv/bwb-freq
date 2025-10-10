@@ -1,4 +1,4 @@
-"""Shared UI asset paths used across the Qt interface."""
+"""Shared UI asset paths used across the tkinter interface."""
 from __future__ import annotations
 
 from pathlib import Path

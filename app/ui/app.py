@@ -1,11 +1,11 @@
-"""wxPython application entry-point for the requisitions UI."""
+"""tkinter application entry-point for the requisitions UI."""
 from __future__ import annotations
 
 import logging
 import os
 import sys
 
-import wx
+import tkinter as tk
 
 from app.ui.assets import APP_ICON
 from app.ui.main_window import MainWindow
@@ -58,7 +58,7 @@ def _log_environment_snapshot() -> None:
 
     _debug_log(f"sys.executable={sys.executable}")
     _debug_log(f"sys.argv={sys.argv}")
-    _debug_log(f"wx.version={wx.version()}")
+    _debug_log(f"tkinter_version={tk.TkVersion}")
     relevant_vars = [
         "FREQ_DEBUGGER_LOG",
     ]
@@ -72,66 +72,64 @@ if DEBUGGER_LOGGER is not None:
     _log_environment_snapshot()
 
 
-class FrequencyApp(wx.App):
-    """wxPython application that bootstraps the requisitions UI."""
+class FrequencyApp:
+    """tkinter application that bootstraps the requisitions UI."""
 
     def __init__(self) -> None:
-        super().__init__(clearSigInt=True)
-        self._main_window: MainWindow | None = None
+        self._root = tk.Tk()
+        self._root.withdraw()
+        self._main_window = MainWindow(self._root)
         self._splash: SplashScreen | None = None
+        self._icon_image: tk.PhotoImage | None = None
 
-    def OnInit(self) -> bool:  # type: ignore[override]
-        _debug_log("Inicialização da aplicação wxPython iniciada.")
+        self._configure_icon()
+        self._initialise_windows()
+
+    def _configure_icon(self) -> None:
+        if not APP_ICON.exists():
+            return
         try:
-            self._initialise_windows()
-        except Exception:  # pragma: no cover - defensive UI bootstrap guard
-            _debug_exception("Falha ao inicializar a interface wxPython")
-            raise
-        return True
+            self._icon_image = tk.PhotoImage(file=str(APP_ICON))
+        except Exception:  # pragma: no cover - invalid icon file
+            self._icon_image = None
+        if self._icon_image is not None:
+            self._root.iconphoto(True, self._icon_image)
 
     def _initialise_windows(self) -> None:
-        self.SetAppDisplayName("Requisições Internas — MVP")
-
-        main_window = MainWindow()
-        self._main_window = main_window
-        self.SetTopWindow(main_window)
-
-        if APP_ICON.exists():
-            try:
-                icon = wx.Icon(str(APP_ICON))
-            except Exception:  # pragma: no cover - icon loading issues
-                icon = None
-            if icon and icon.IsOk():
-                main_window.SetIcon(icon)
-
-        splash = SplashScreen(on_click=self._show_main_window, auto_dismiss_ms=3000)
+        _debug_log("Inicialização da aplicação tkinter iniciada.")
+        splash = SplashScreen(
+            self._root, on_click=self._show_main_window, auto_dismiss_ms=3000
+        )
         if splash.is_available:
             self._splash = splash
-            splash.Show()
-            main_window.Hide()
+            splash.show()
         else:
             self._show_main_window()
 
     def _show_main_window(self) -> None:
-        main_window = self._main_window
-        if main_window is not None:
-            _debug_log("A abrir a janela principal.")
-            main_window.Centre()
-            main_window.Show()
-            if hasattr(main_window, "Raise"):
-                main_window.Raise()
+        _debug_log("A abrir a janela principal.")
+        self._root.deiconify()
+        self._main_window.center_on_screen()
+        self._root.lift()
+        try:
+            self._root.focus_force()
+        except tk.TclError:
+            pass
 
         splash = self._splash
         self._splash = None
-        if splash is not None and not splash.IsBeingDeleted():
-            splash.Destroy()
+        if splash is not None:
+            splash.destroy()
+
+    def run(self) -> None:
+        self._root.mainloop()
 
 
 def run() -> int:
-    """Start the wxPython main loop."""
+    """Start the tkinter main loop."""
 
     app = FrequencyApp()
-    app.MainLoop()
+    app.run()
     return 0
 
 
@@ -141,7 +139,7 @@ def main() -> int:
     try:
         return run()
     except Exception:  # pragma: no cover - ensure logging of unexpected failures
-        _debug_exception("Erro fatal na aplicação wxPython")
+        _debug_exception("Erro fatal na aplicação tkinter")
         raise
 
 
