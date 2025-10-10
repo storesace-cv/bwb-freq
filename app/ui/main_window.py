@@ -670,10 +670,11 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(central)
 
         self._barcode_pixmap_cache: dict[str, QPixmap] = {}
-        self._open_barcode_previews: list[QDialog] = []
-        self._drag_offset = None
-        self._drag_handles: set[QWidget] = set()
-        self._current_table_id: str | None = None
+        self._barcode_image_max_width: int = 0
+        self._barcode_label_entries: list[tuple[int, QLabel]] = []
+        self._barcode_image_column: int | None = None
+        self._barcode_image_max_height: int = 75
+        self._barcode_image_min_width: int = self._barcode_image_max_height * 4
 
         self._install_drag_handle(self.function_bar)
         self._install_drag_handle(self.title_label)
@@ -935,9 +936,16 @@ class MainWindow(QMainWindow):
             barcode_width = char_width * BARCODE_DISPLAY_LIMIT + 24
 
             for index, _ in enumerate(columns):
-                if index == barcode_index:
-                    header.setSectionResizeMode(index, QHeaderView.Fixed)
-                    header.resizeSection(index, barcode_width)
+                if index == barcode_image_index:
+                    header.setSectionResizeMode(index, QHeaderView.Stretch)
+                    desired_width = max(
+                        self._barcode_image_max_width + 24,
+                        self._barcode_image_min_width + 24,
+                        220,
+                    )
+                    header.resizeSection(index, desired_width)
+                elif index == barcode_type_index:
+                    header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
             header.setStretchLastSection(True)
