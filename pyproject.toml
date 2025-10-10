@@ -2,4 +2,4 @@
 name = "requisicoes-internas"
 version = "0.1.0"
 description = "MVP de Requisições Internas (Excel -> SQLite -> JSON/CSV/ReportBro)"
-requires-python = ">=3.10"
+requires-python = ">=3.10,<3.12"
