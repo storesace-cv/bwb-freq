@@ -20,10 +20,12 @@ def test_full_import_and_print_flow(app_services, dataset_paths, tmp_path):
     articles = dataset_paths.articles
     warehouses = dataset_paths.warehouses
     barcodes = dataset_paths.barcodes
+    fichas = dataset_paths.fichas_tecnicas
 
     importer.import_wharehouses(str(warehouses))
     importer.import_netbo_articles(str(articles))
     importer.import_article_barcodes(str(barcodes))
+    importer.import_fichas_tecnicas(str(fichas))
     importer.build_warehouse_articles_from_disp()
 
     with db.get_connection() as conn:
@@ -66,6 +68,18 @@ def test_full_import_and_print_flow(app_services, dataset_paths, tmp_path):
     assert data_10002["sem_barcode"] == 1
     artigos_10002 = {item["Codigo"]: item for item in data_10002["artigos"]}
     assert artigos_10002["A003"]["barcode_value"] is None
+
+    with db.get_connection() as conn:
+        fichas_rows = conn.execute(
+            "SELECT ProdVendaGenerico, Componente, Quantidade, Unidade FROM FichasTecnicas ORDER BY Componente"
+        ).fetchall()
+    assert [
+        (row["ProdVendaGenerico"], row["Componente"], row["Quantidade"], row["Unidade"])
+        for row in fichas_rows
+    ] == [
+        ("A001", "A002", 2.0, "UN"),
+        ("A001", "A003", 1.0, "UN"),
+    ]
 
 
 def test_import_wharehouses_requires_codigo(app_services, dataset_paths):

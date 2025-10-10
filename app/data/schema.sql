@@ -54,6 +54,16 @@ CREATE TABLE IF NOT EXISTS ArticleBarcodes (
   ZoneNames TEXT
 );
 
+CREATE TABLE IF NOT EXISTS FichasTecnicas (
+  ProdVendaGenerico TEXT NOT NULL,
+  Componente TEXT NOT NULL,
+  Quantidade REAL,
+  Unidade TEXT,
+  NomeProdVendaGenerico TEXT,
+  NomeComponente TEXT,
+  PRIMARY KEY (ProdVendaGenerico, Componente)
+);
+
 CREATE TABLE IF NOT EXISTS WarehouseArticles (
   WarehouseCodigo TEXT NOT NULL,
   ArticleCodigo TEXT NOT NULL,
