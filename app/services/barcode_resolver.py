@@ -13,9 +13,7 @@ from typing import (
     Tuple,
 )
 
-
-def _is_ean13(s: str) -> bool:
-    return s.isdigit() and len(s) == 13
+from app.utils.barcodes import classify_gs1_barcode
 
 
 _STORE_SPLIT_RE = re.compile(r"[;,]")
@@ -68,16 +66,16 @@ def resolve_barcode(
         if not tokens or warehouse_codigo in tokens:
             val = candidate.get("Barcode", "")
             if val:
-                return val, ("EAN13" if _is_ean13(val) else "Code128")
+                return val, classify_gs1_barcode(val)
 
     for candidate in candidates:
         val = candidate.get("Barcode", "")
         if val:
-            return val, ("EAN13" if _is_ean13(val) else "Code128")
+            return val, classify_gs1_barcode(val)
 
     if article_cod_barras:
         val = article_cod_barras.strip()
         if val:
-            return val, ("EAN13" if _is_ean13(val) else "Code128")
+            return val, classify_gs1_barcode(val)
 
     return None, None
