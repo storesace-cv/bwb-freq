@@ -67,6 +67,7 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
             "UnidadeName",
             "Familia",
             "SubFamilia",
+            "Tipo de Código de Barras",
         ),
         query=(
             "SELECT "
@@ -603,10 +604,14 @@ class MainWindow(QMainWindow):
         elif table_kind == "barcodes":
             barcode_type_header = "Tipo de Código de Barras"
             barcode_index = columns.index("Barcode")
-            barcode_type_index = columns.index(barcode_type_header)
+            barcode_type_index = (
+                columns.index(barcode_type_header)
+                if barcode_type_header in columns
+                else None
+            )
 
             for index, _ in enumerate(columns):
-                if index in {barcode_index, barcode_type_index}:
+                if index == barcode_index or index == barcode_type_index:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
                 else:
                     header.setSectionResizeMode(index, QHeaderView.ResizeToContents)
