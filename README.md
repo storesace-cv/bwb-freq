@@ -131,6 +131,10 @@ O script `launcher.sh` garante que as dependências Python estão instaladas ant
 python -m app.ui
 ```
 
+> 💡 **Sugestão opcional:** a interface consegue tirar partido de ícones Font Awesome se
+> tiveres `tkfontawesome` instalado (`pip install tkfontawesome scikit-build`). A aplicação
+> faz o detetor automaticamente, por isso continua a funcionar mesmo sem a biblioteca.
+
 ### launcher.sh — Garantia de ambiente + arranque seguro da GUI (macOS)
 
 Este `launcher.sh` é um módulo de arranque robusto para aplicações PySide6 no macOS. Ele garante que todas as condições técnicas estão cumpridas antes de tentar abrir a interface gráfica. Se alguma condição falhar, explica claramente o motivo e termina, sem tentar arrancar a app.

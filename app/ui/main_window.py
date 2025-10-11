@@ -4,6 +4,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
+import importlib.util
 
 import tkinter as tk
 from tkinter import messagebox, ttk
@@ -23,6 +24,12 @@ from app.services.importer import (
     import_wharehouses,
 )
 from app.utils.barcodes import classify_gs1_barcode
+
+_TKFONTAWESOME_SPEC = importlib.util.find_spec("tkfontawesome")
+if _TKFONTAWESOME_SPEC:
+    from tkfontawesome import icon_to_image
+else:  # pragma: no cover - optional dependency
+    icon_to_image = None  # type: ignore[assignment]
 
 
 @dataclass(frozen=True)
@@ -152,6 +159,7 @@ class MainWindow:
         self._row_metadata: dict[str, dict[str, str]] = {}
         self._barcode_image_cache: dict[str, Image.Image] = {}
         self._open_barcode_dialogs: set[tk.Toplevel] = set()
+        self._icon_cache: dict[tuple[str, str, int], tk.PhotoImage] = {}
 
         self._table_pack_options: dict[str, object]
 
@@ -175,6 +183,7 @@ class MainWindow:
 
         self.menu_button = ttk.Menubutton(header_frame, text="Menu")
         self.menu_button.pack(side="left", padx=12, pady=12)
+        self._apply_icon(self.menu_button, "fa-solid fa-bars", size=18)
 
         # tkinter only recognises "normal" and "bold" weight values, so use the
         # supported option here to avoid runtime errors on macOS/Linux.
@@ -184,6 +193,7 @@ class MainWindow:
 
         close_button = ttk.Button(header_frame, text="Sair", command=self.root.destroy)
         close_button.pack(side="right", padx=12, pady=12)
+        self._apply_icon(close_button, "fa-solid fa-right-from-bracket")
 
         self.workspace_hint_default_text = (
             "Selecione uma tabela em Menu ▸ Tabelas para visualizar os dados."
@@ -219,6 +229,7 @@ class MainWindow:
             header_row, text="Fechar", command=self._close_table_view
         )
         self.close_table_button.pack(side="right", padx=8, pady=8)
+        self._apply_icon(self.close_table_button, "fa-solid fa-circle-xmark")
 
         table_frame = ttk.Frame(self.table_container)
         table_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -658,6 +669,41 @@ class MainWindow:
         x = max((screen_width - width) // 2, 0)
         y = max((screen_height - height) // 2, 0)
         self.root.geometry(f"{width}x{height}+{x}+{y}")
+
+    def _apply_icon(
+        self,
+        widget: tk.Widget,
+        icon_identifier: str,
+        *,
+        size: int = 16,
+        fill: str | None = None,
+        compound: str = "left",
+    ) -> None:
+        if icon_to_image is None:
+            return
+
+        fill_color = fill or self._resolve_widget_foreground(widget) or "#2d3748"
+        cache_key = (icon_identifier, fill_color, size)
+        if cache_key not in self._icon_cache:
+            self._icon_cache[cache_key] = icon_to_image(
+                icon_identifier, fill=fill_color, scale_to_width=size
+            )
+        widget.configure(image=self._icon_cache[cache_key], compound=compound)
+
+    @staticmethod
+    def _resolve_widget_foreground(widget: tk.Widget) -> str:
+        try:
+            value = widget.cget("foreground")
+        except tk.TclError:
+            value = ""
+        if not value:
+            try:
+                style = ttk.Style()
+                widget_class = widget.winfo_class()
+                value = style.lookup(widget_class, "foreground")
+            except tk.TclError:
+                value = ""
+        return value
 
 
 __all__ = ["MainWindow", "TABLE_CONFIGS", "HOME_TABLE_ID"]
