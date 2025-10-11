@@ -83,14 +83,18 @@ PY
 echo "🎨 A verificar Tkinter (obrigatório)…"
 "$PY" - <<'PY'
 import sys
+
 try:
     import tkinter as tk
-    root = tk.Tk()
-    v = root.tk.call('info', 'patchlevel')
-    print(f"✅ Tkinter disponível (Tk {v})")
-    root.destroy()
-except Exception as e:
-    print(f"❌ Tkinter em falta ou inválido: {e}")
+
+    # `tk.Tk()` falha em ambientes headless (DISPLAY ausente). Para validar
+    # a instalação de Tkinter nestes cenários basta instanciar `tkinter.Tcl`,
+    # que não tenta abrir uma janela mas permite consultar a versão do Tk.
+    tcl = tk.Tcl()
+    version = tcl.eval('info patchlevel')
+    print(f"✅ Tkinter disponível (Tk {version})")
+except Exception as exc:
+    print(f"❌ Tkinter em falta ou inválido: {exc}")
     sys.exit(1)
 PY
 
