@@ -155,11 +155,13 @@ class MainWindow:
         init_db()
 
         self._current_table_id: str | None = None
+        self._current_table_kind: str | None = None
         self._barcode_column_index: int | None = None
         self._row_metadata: dict[str, dict[str, str]] = {}
         self._barcode_image_cache: dict[str, Image.Image] = {}
         self._open_barcode_dialogs: set[tk.Toplevel] = set()
         self._icon_cache: dict[tuple[str, str, int], tk.PhotoImage] = {}
+        self._barcode_preview_icon: tk.PhotoImage | None = None
 
         self._table_pack_options: dict[str, object]
 
@@ -243,6 +245,7 @@ class MainWindow:
         )
         self.table_widget.pack(side="left", fill="both", expand=True)
         self.table_widget.bind("<Double-1>", self._on_item_activated)
+        self.table_widget.bind("<Button-1>", self._on_table_click, add="+")
 
         scrollbar_y = ttk.Scrollbar(
             table_frame, orient="vertical", command=self.table_widget.yview
@@ -333,6 +336,7 @@ class MainWindow:
             raise ValueError(f"Unknown table identifier: {table_id}")
 
         rows = self._fetch_rows(config.query)
+        self._current_table_kind = config.table_kind
         self._populate_table(
             config.columns,
             rows,
@@ -355,11 +359,29 @@ class MainWindow:
         for item in self.table_widget.get_children():
             self.table_widget.delete(item)
 
-        self.table_widget.configure(columns=columns)
+        display_columns = list(columns)
+        self._barcode_preview_icon = None
+
+        if table_kind == "barcodes":
+            self.table_widget.configure(show="tree headings")
+            self.table_widget.configure(columns=display_columns)
+            self.table_widget.configure(displaycolumns=display_columns + ["#0"])
+            self.table_widget.heading("#0", text="Ver Código")
+            self.table_widget.column(
+                "#0", anchor="center", width=84, stretch=False, minwidth=64
+            )
+            self._barcode_preview_icon = self._get_preview_icon()
+        else:
+            self.table_widget.configure(show="headings")
+            self.table_widget.configure(columns=display_columns)
+            self.table_widget.configure(displaycolumns=display_columns)
+            self.table_widget.heading("#0", text="")
+
+        self.table_widget.configure(columns=display_columns)
         self._row_metadata.clear()
         self._barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
-        for column in columns:
+        for column in display_columns:
             self.table_widget.heading(column, text=column, anchor="w")
             self.table_widget.column(column, anchor="w", width=150, stretch=True)
 
@@ -379,7 +401,17 @@ class MainWindow:
                 text = "" if value is None else str(value)
                 values.append(text)
 
-            item_id = self.table_widget.insert("", "end", values=values)
+            item_kwargs: dict[str, object] = {}
+            if table_kind == "barcodes":
+                if barcode_value and self._barcode_preview_icon is not None:
+                    item_kwargs["image"] = self._barcode_preview_icon
+                    item_kwargs["text"] = ""
+                elif barcode_value:
+                    item_kwargs["text"] = "Ver"
+                else:
+                    item_kwargs["text"] = "—"
+
+            item_id = self.table_widget.insert("", "end", values=values, **item_kwargs)
             if barcode_value:
                 self._row_metadata[item_id] = {"barcode": str(barcode_value)}
 
@@ -388,7 +420,7 @@ class MainWindow:
         if rows:
             self._set_workspace_hint(self.workspace_hint_default_text, visible=False)
             hint_text = (
-                "Dê um duplo clique numa linha com código de barras para visualizar a imagem."
+                "Clique no ícone de olho vermelho para visualizar o código de barras."
             )
             self.status_var.set(hint_text)
             self._auto_size_columns(columns, rows)
@@ -454,6 +486,26 @@ class MainWindow:
                 "Não existe um código de barras para apresentar nesta linha.",
                 parent=self.root,
             )
+            return
+
+        barcode_value = metadata.get("barcode")
+        if barcode_value:
+            self._show_barcode_preview(barcode_value)
+
+    def _on_table_click(self, event: tk.Event) -> None:
+        if self._current_table_kind != "barcodes":
+            return
+
+        region = self.table_widget.identify("region", event.x, event.y)
+        if region != "tree":
+            return
+
+        item_id = self.table_widget.identify_row(event.y)
+        if not item_id:
+            return
+
+        metadata = self._row_metadata.get(item_id)
+        if not metadata:
             return
 
         barcode_value = metadata.get("barcode")
@@ -687,6 +739,18 @@ class MainWindow:
                 icon_identifier, fill=fill_color, scale_to_width=size
             )
         widget.configure(image=self._icon_cache[cache_key], compound=compound)
+
+    def _get_preview_icon(self) -> tk.PhotoImage | None:
+        if icon_to_image is None:
+            return None
+
+        fill_color = "#dc2626"
+        cache_key = ("fa-solid fa-eye", fill_color, 18)
+        if cache_key not in self._icon_cache:
+            self._icon_cache[cache_key] = icon_to_image(
+                "fa-solid fa-eye", fill=fill_color, scale_to_width=18
+            )
+        return self._icon_cache[cache_key]
 
     @staticmethod
     def _resolve_widget_foreground(widget: tk.Widget) -> str:
