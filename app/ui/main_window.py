@@ -10,7 +10,7 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 import tkinter.font as tkfont
 
-from PIL import Image, ImageTk
+from PIL import Image, ImageDraw, ImageTk
 
 from barcode import get_barcode_class
 from barcode.writer import ImageWriter
@@ -253,6 +253,12 @@ class MainWindow:
         scrollbar_y.pack(side="right", fill="y")
         self.table_widget.configure(yscrollcommand=scrollbar_y.set)
 
+        scrollbar_x = ttk.Scrollbar(
+            table_frame, orient="horizontal", command=self.table_widget.xview
+        )
+        scrollbar_x.pack(side="bottom", fill="x")
+        self.table_widget.configure(xscrollcommand=scrollbar_x.set)
+
         status_frame = ttk.Frame(self.root)
         status_frame.pack(fill="x", side="bottom")
         self.status_var = tk.StringVar(value="Pronto")
@@ -360,28 +366,27 @@ class MainWindow:
             self.table_widget.delete(item)
 
         display_columns = list(columns)
+        display_display_columns = list(display_columns)
         self._barcode_preview_icon = None
 
         if table_kind == "barcodes":
             self.table_widget.configure(show="tree headings")
-            self.table_widget.configure(columns=display_columns)
-            # ``#0`` is the implicit tree column. Requesting it explicitly in
-            # ``displaycolumns`` causes a ``TclError`` on some Tk builds (notably
-            # on macOS).  Showing the tree column is already handled by
-            # ``show="tree headings"``, so only expose the data columns here.
-            self.table_widget.configure(displaycolumns=display_columns)
-            self.table_widget.heading("#0", text="Ver Código")
+            barcode_display_index = (
+                display_columns.index("Barcode") + 1 if "Barcode" in display_columns else 0
+            )
+            display_display_columns.insert(barcode_display_index, "#0")
+            self.table_widget.heading("#0", text="Ver Código", anchor="center")
             self.table_widget.column(
                 "#0", anchor="center", width=84, stretch=False, minwidth=64
             )
             self._barcode_preview_icon = self._get_preview_icon()
         else:
             self.table_widget.configure(show="headings")
-            self.table_widget.configure(columns=display_columns)
-            self.table_widget.configure(displaycolumns=display_columns)
             self.table_widget.heading("#0", text="")
+            self.table_widget.column("#0", width=0, minwidth=0, stretch=False)
 
         self.table_widget.configure(columns=display_columns)
+        self.table_widget.configure(displaycolumns=tuple(display_display_columns))
         self._row_metadata.clear()
         self._barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
@@ -745,15 +750,49 @@ class MainWindow:
         widget.configure(image=self._icon_cache[cache_key], compound=compound)
 
     def _get_preview_icon(self) -> tk.PhotoImage | None:
-        if icon_to_image is None:
-            return None
-
         fill_color = "#dc2626"
-        cache_key = ("fa-solid fa-eye", fill_color, 18)
+
+        if icon_to_image is not None:
+            cache_key = ("fa-solid fa-eye", fill_color, 18)
+            if cache_key not in self._icon_cache:
+                self._icon_cache[cache_key] = icon_to_image(
+                    "fa-solid fa-eye", fill=fill_color, scale_to_width=18
+                )
+            return self._icon_cache[cache_key]
+
+        cache_key = ("fallback-eye", fill_color, 18)
         if cache_key not in self._icon_cache:
-            self._icon_cache[cache_key] = icon_to_image(
-                "fa-solid fa-eye", fill=fill_color, scale_to_width=18
+            size = 18
+            image = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+            draw = ImageDraw.Draw(image)
+
+            outline_color = (220, 38, 38, 255)
+            pupil_color = outline_color
+            highlight_color = (255, 255, 255, 255)
+
+            eye_rect = (1, size // 4, size - 2, size - size // 4)
+            draw.ellipse(eye_rect, outline=outline_color, width=2, fill=highlight_color)
+
+            pupil_radius = size // 5
+            pupil_center = (size // 2, size // 2)
+            pupil_rect = (
+                pupil_center[0] - pupil_radius,
+                pupil_center[1] - pupil_radius,
+                pupil_center[0] + pupil_radius,
+                pupil_center[1] + pupil_radius,
             )
+            draw.ellipse(pupil_rect, fill=pupil_color)
+
+            highlight_rect = (
+                pupil_center[0] - pupil_radius // 2,
+                pupil_center[1] - pupil_radius // 2,
+                pupil_center[0],
+                pupil_center[1],
+            )
+            draw.ellipse(highlight_rect, fill=highlight_color)
+
+            self._icon_cache[cache_key] = ImageTk.PhotoImage(image)
+
         return self._icon_cache[cache_key]
 
     @staticmethod
