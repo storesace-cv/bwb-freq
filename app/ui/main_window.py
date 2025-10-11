@@ -401,7 +401,15 @@ class MainWindow:
                 self.workspace_hint_frame.pack_forget()
 
     def _auto_size_columns(self, columns: tuple[str, ...], _rows: list) -> None:
-        font = tkfont.nametofont(self.table_widget.cget("font"))
+        style = ttk.Style(self.table_widget)
+        font_name = style.lookup("Treeview", "font")
+        if not font_name:
+            font = tkfont.nametofont("TkDefaultFont")
+        else:
+            try:
+                font = tkfont.nametofont(font_name)
+            except tk.TclError:
+                font = tkfont.Font(name=font_name, exists=True)
         for column in columns:
             max_width = font.measure(column) + 24
             for item_id in self.table_widget.get_children():
