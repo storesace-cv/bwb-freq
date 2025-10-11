@@ -402,11 +402,9 @@ class MainWindow:
         if show:
             if not self.table_container.winfo_manager():
                 self.table_container.pack(**self._table_pack_options)
-            self.close_table_button.state(["!disabled"])
         else:
             if self.table_container.winfo_manager():
                 self.table_container.pack_forget()
-            self.close_table_button.state(["disabled"])
 
     def _set_workspace_hint(self, text: str, *, visible: bool) -> None:
         self.workspace_hint_var.set(text)
