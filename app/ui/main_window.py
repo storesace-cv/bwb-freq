@@ -182,9 +182,6 @@ class MainWindow:
         title_label = ttk.Label(header_frame, text="Requisições Internas", font=title_font)
         title_label.pack(side="left", padx=12, pady=12)
 
-        close_button = ttk.Button(header_frame, text="Sair", command=self.root.destroy)
-        close_button.pack(side="right", padx=12, pady=12)
-
         self.workspace_hint_default_text = (
             "Selecione uma tabela em Menu ▸ Tabelas para visualizar os dados."
         )
@@ -214,11 +211,6 @@ class MainWindow:
             header_row, textvariable=self.table_title_var, font=table_title_font
         )
         table_title_label.pack(side="left", padx=8, pady=8)
-
-        self.close_table_button = ttk.Button(
-            header_row, text="Fechar", command=self._close_table_view
-        )
-        self.close_table_button.pack(side="right", padx=8, pady=8)
 
         table_frame = ttk.Frame(self.table_container)
         table_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
@@ -391,11 +383,9 @@ class MainWindow:
         if show:
             if not self.table_container.winfo_manager():
                 self.table_container.pack(**self._table_pack_options)
-            self.close_table_button.state(["!disabled"])
         else:
             if self.table_container.winfo_manager():
                 self.table_container.pack_forget()
-            self.close_table_button.state(["disabled"])
 
     def _set_workspace_hint(self, text: str, *, visible: bool) -> None:
         self.workspace_hint_var.set(text)
