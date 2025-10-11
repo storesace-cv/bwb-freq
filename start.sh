@@ -71,16 +71,11 @@ source ".venv/bin/activate"
 python -m pip -q install --upgrade pip setuptools wheel
 
 # 2) Instalar/atualizar requirements se necessário
-CONSTR="$ROOT_DIR/constraints-wx.txt"
-if [ ! -f "$CONSTR" ]; then
-  echo "❌ Ficheiro constraints-wx.txt não encontrado."
-  exit 1
-fi
 STAMP=".venv/.deps.ok"
-if [ ! -f "$STAMP" ] || [ "requirements.txt" -nt "$STAMP" ] || [ "$CONSTR" -nt "$STAMP" ]; then
+if [ ! -f "$STAMP" ] || [ "requirements.txt" -nt "$STAMP" ]; then
   echo "📦 A instalar/atualizar dependências de requirements.txt…"
   pip cache purge >/dev/null 2>&1 || true
-  if ! pip install --no-cache-dir -r requirements.txt -c "$CONSTR"; then
+  if ! pip install --no-cache-dir -r requirements.txt; then
     echo "❌ Falha a instalar dependências (pip)."
     exit 1
   fi
@@ -94,7 +89,7 @@ if ! pip check; then
   exit 1
 fi
 
-# 3) Smoke test: imports básicos + teste mínimo de wxPython (sem MainLoop)
+# 3) Smoke test: imports básicos
 echo "🧪 A executar smoke test dos pacotes…"
 python - <<'PY'
 import importlib
@@ -108,7 +103,7 @@ mods = [
     "dotenv",           # python-dotenv
     "barcode",          # python-barcode
     "PIL",              # Pillow
-    "wx"                # wxPython
+    "tkinter",          # tkinter
 ]
 bad = []
 for m in mods:
@@ -136,13 +131,18 @@ except Exception as exc:
             print("Sugestão: remove o ficheiro local pytz.py do repositório antes de correr o setup.", file=sys.stderr)
     sys.exit(3)
 
-# Teste mínimo wxPython: instanciar App e criar/destruir um Frame SEM MainLoop
-import wx
-app = wx.App(False)
-frame = wx.Frame(None)
-frame.Show(False)
-frame.Destroy()
-del app
+# Teste mínimo tkinter: compatível com ambientes headless
+import tkinter as tk
+
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    interp = tk.Tcl()
+    interp.eval("update")
+else:
+    root = tk.Tk()
+    try:
+        root.update_idletasks()
+    finally:
+        root.destroy()
 print("SMOKE_OK")
 PY
 

@@ -1,12 +1,15 @@
-"""Main window for the requisitions UI built with wxPython."""
+"""Main window for the requisitions UI built with tkinter."""
 from __future__ import annotations
 
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Callable
 
-import wx
+import tkinter as tk
+from tkinter import messagebox, ttk
+import tkinter.font as tkfont
+
+from PIL import Image, ImageTk
 
 from barcode import get_barcode_class
 from barcode.writer import ImageWriter
@@ -19,8 +22,6 @@ from app.services.importer import (
     import_netbo_articles,
     import_wharehouses,
 )
-from app.ui.assets import APP_ICON, BACKGROUND_IMAGE
-from app.ui.background_utils import BackgroundLayer
 from app.utils.barcodes import classify_gs1_barcode
 
 
@@ -135,27 +136,24 @@ TABLE_CONFIGS: dict[str, TableDisplayConfig] = {
 }
 
 
-class MainWindow(wx.Frame):
-    """Main application window using wxPython widgets."""
+class MainWindow:
+    """Main application window using tkinter widgets."""
 
-    def __init__(self) -> None:
-        style = wx.DEFAULT_FRAME_STYLE
-        super().__init__(None, title="Requisições Internas — MVP", size=(1024, 768), style=style)
-
-        if APP_ICON.exists():
-            try:
-                self.SetIcon(wx.Icon(str(APP_ICON)))
-            except Exception:  # pragma: no cover - icon issues
-                pass
+    def __init__(self, root: tk.Tk) -> None:
+        self.root = root
+        self.root.title("Requisições Internas — MVP")
+        self.root.geometry("1024x768")
+        self.root.minsize(960, 640)
 
         init_db()
 
-        self._background_layer = BackgroundLayer(self, BACKGROUND_IMAGE, "main-background")
         self._current_table_id: str | None = None
         self._barcode_column_index: int | None = None
-        self._row_metadata: dict[int, dict[str, str]] = {}
-        self._barcode_bitmap_cache: dict[str, wx.Bitmap] = {}
-        self._open_barcode_dialogs: set[wx.Dialog] = set()
+        self._row_metadata: dict[str, dict[str, str]] = {}
+        self._barcode_image_cache: dict[str, Image.Image] = {}
+        self._open_barcode_dialogs: set[tk.Toplevel] = set()
+
+        self._table_pack_options: dict[str, object]
 
         self._build_ui()
         self._configure_menu()
@@ -165,149 +163,145 @@ class MainWindow(wx.Frame):
     # UI construction
     # ------------------------------------------------------------------
     def _build_ui(self) -> None:
-        panel = wx.Panel(self)
-        panel.SetName("central-panel")
+        style = ttk.Style(self.root)
+        if "clam" in style.theme_names():
+            style.theme_use("clam")
 
-        main_sizer = wx.BoxSizer(wx.VERTICAL)
-        panel.SetSizer(main_sizer)
+        main_frame = ttk.Frame(self.root, padding=16)
+        main_frame.pack(fill="both", expand=True)
 
-        header = wx.Panel(panel)
-        header_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        header.SetSizer(header_sizer)
-        header.SetBackgroundColour(wx.Colour(240, 236, 229))
+        header_frame = ttk.Frame(main_frame)
+        header_frame.pack(fill="x")
 
-        title = wx.StaticText(header, label="Requisições Internas")
-        title.SetFont(wx.Font(18, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_SEMIBOLD))
-        header_sizer.Add(title, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 12)
+        title_font = tkfont.Font(size=18, weight="semibold")
+        title_label = ttk.Label(header_frame, text="Requisições Internas", font=title_font)
+        title_label.pack(side="left", padx=12, pady=12)
 
-        close_button = wx.Button(header, label="Sair")
-        close_button.Bind(wx.EVT_BUTTON, lambda _evt: self.Close())
-        header_sizer.Add(close_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 12)
+        close_button = ttk.Button(header_frame, text="Sair", command=self.root.destroy)
+        close_button.pack(side="right", padx=12, pady=12)
 
-        main_sizer.Add(header, 0, wx.EXPAND)
-
-        hint_panel = wx.Panel(panel)
-        hint_sizer = wx.BoxSizer(wx.VERTICAL)
-        hint_panel.SetSizer(hint_sizer)
-
-        self.workspace_hint_default_text = "Selecione uma tabela em Menu ▸ Tabelas para visualizar os dados."
-        self.workspace_hint = wx.StaticText(hint_panel, label=self.workspace_hint_default_text)
-        self.workspace_hint.Wrap(760)
-        hint_font = wx.Font(14, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_NORMAL)
-        self.workspace_hint.SetFont(hint_font)
-        hint_sizer.Add(self.workspace_hint, 0, wx.ALIGN_CENTER | wx.ALL, 20)
-
-        main_sizer.Add(hint_panel, 0, wx.EXPAND)
-
-        table_panel = wx.Panel(panel)
-        table_panel.SetName("table-panel")
-        table_panel.SetBackgroundColour(wx.Colour(250, 248, 244))
-        table_sizer = wx.BoxSizer(wx.VERTICAL)
-        table_panel.SetSizer(table_sizer)
-
-        header_row = wx.BoxSizer(wx.HORIZONTAL)
-        self.table_title = wx.StaticText(table_panel, label="")
-        self.table_title.SetFont(wx.Font(16, wx.FONTFAMILY_DEFAULT, wx.FONTSTYLE_NORMAL, wx.FONTWEIGHT_SEMIBOLD))
-        header_row.Add(self.table_title, 1, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
-
-        self.close_table_button = wx.Button(table_panel, label="Fechar")
-        self.close_table_button.Bind(wx.EVT_BUTTON, lambda _evt: self._close_table_view())
-        header_row.Add(self.close_table_button, 0, wx.ALIGN_CENTER_VERTICAL | wx.ALL, 8)
-
-        table_sizer.Add(header_row, 0, wx.EXPAND)
-
-        self.table_widget = wx.ListCtrl(
-            table_panel,
-            style=wx.LC_REPORT | wx.LC_SINGLE_SEL | wx.LC_HRULES | wx.BORDER_SUNKEN,
+        self.workspace_hint_default_text = (
+            "Selecione uma tabela em Menu ▸ Tabelas para visualizar os dados."
         )
-        self.table_widget.Bind(wx.EVT_LIST_ITEM_ACTIVATED, self._on_item_activated)
-        table_sizer.Add(self.table_widget, 1, wx.EXPAND | wx.LEFT | wx.RIGHT | wx.BOTTOM, 8)
+        self.workspace_hint_var = tk.StringVar(value=self.workspace_hint_default_text)
+        self.workspace_hint_frame = ttk.Frame(main_frame)
+        self.workspace_hint_frame.pack(fill="x")
+        hint_font = tkfont.Font(size=14)
+        hint_label = ttk.Label(
+            self.workspace_hint_frame,
+            textvariable=self.workspace_hint_var,
+            wraplength=760,
+            font=hint_font,
+            justify="center",
+        )
+        hint_label.pack(padx=20, pady=20)
 
-        main_sizer.Add(table_panel, 1, wx.EXPAND | wx.ALL, 16)
+        self.table_container = ttk.Frame(main_frame)
+        self._table_pack_options = {"fill": "both", "expand": True, "pady": 16}
+        self.table_container.pack(**self._table_pack_options)
 
-        self.table_container = table_panel
+        header_row = ttk.Frame(self.table_container)
+        header_row.pack(fill="x")
+
+        table_title_font = tkfont.Font(size=16, weight="semibold")
+        self.table_title_var = tk.StringVar(value="")
+        table_title_label = ttk.Label(
+            header_row, textvariable=self.table_title_var, font=table_title_font
+        )
+        table_title_label.pack(side="left", padx=8, pady=8)
+
+        self.close_table_button = ttk.Button(
+            header_row, text="Fechar", command=self._close_table_view
+        )
+        self.close_table_button.pack(side="right", padx=8, pady=8)
+
+        table_frame = ttk.Frame(self.table_container)
+        table_frame.pack(fill="both", expand=True, padx=8, pady=(0, 8))
+
+        columns: tuple[str, ...] = ()
+        self.table_widget = ttk.Treeview(
+            table_frame,
+            columns=columns,
+            show="headings",
+            selectmode="browse",
+        )
+        self.table_widget.pack(side="left", fill="both", expand=True)
+        self.table_widget.bind("<Double-1>", self._on_item_activated)
+
+        scrollbar_y = ttk.Scrollbar(
+            table_frame, orient="vertical", command=self.table_widget.yview
+        )
+        scrollbar_y.pack(side="right", fill="y")
+        self.table_widget.configure(yscrollcommand=scrollbar_y.set)
+
+        status_frame = ttk.Frame(self.root)
+        status_frame.pack(fill="x", side="bottom")
+        self.status_var = tk.StringVar(value="Pronto")
+        self.status_bar = ttk.Label(
+            status_frame, textvariable=self.status_var, anchor="w", padding=(8, 4)
+        )
+        self.status_bar.pack(fill="x")
+
         self._toggle_table_visibility(False)
 
-        self.status_bar = self.CreateStatusBar()
-        self.status_bar.SetStatusText("Pronto")
-
-        panel.Layout()
-
     def _configure_menu(self) -> None:
-        menu_bar = wx.MenuBar()
+        menu_bar = tk.Menu(self.root)
 
-        main_menu = wx.Menu()
+        main_menu = tk.Menu(menu_bar, tearoff=False)
 
-        base_dados_menu = wx.Menu()
-        self._add_menu_item(
-            base_dados_menu,
-            "Atualizar Dados",
-            handler=self._update_database_from_excels,
+        base_dados_menu = tk.Menu(main_menu, tearoff=False)
+        base_dados_menu.add_command(
+            label="Atualizar Dados", command=self._update_database_from_excels
         )
-        self._add_menu_item(
-            base_dados_menu,
-            "Importar Dados",
-            handler=self._import_incoming_excels,
+        base_dados_menu.add_command(
+            label="Importar Dados", command=self._import_incoming_excels
         )
 
-        seguranca_menu = wx.Menu()
-        seguranca_menu.Append(wx.ID_ANY, "Segurança")
-        seguranca_menu.Append(wx.ID_ANY, "Reposição")
-        base_dados_menu.AppendSubMenu(seguranca_menu, "Segurança")
+        seguranca_menu = tk.Menu(base_dados_menu, tearoff=False)
+        seguranca_menu.add_command(label="Segurança")
+        seguranca_menu.add_command(label="Reposição")
+        base_dados_menu.add_cascade(label="Segurança", menu=seguranca_menu)
 
-        main_menu.AppendSubMenu(base_dados_menu, "Base de Dados")
+        main_menu.add_cascade(label="Base de Dados", menu=base_dados_menu)
 
-        tabelas_menu = wx.Menu()
-        self._add_menu_item(tabelas_menu, "Artigos", handler=lambda: self._show_table("netbo"))
-        self._add_menu_item(
-            tabelas_menu,
-            "Departamentos",
-            handler=lambda: self._show_table("wharehouses"),
+        tabelas_menu = tk.Menu(main_menu, tearoff=False)
+        tabelas_menu.add_command(label="Artigos", command=lambda: self._show_table("netbo"))
+        tabelas_menu.add_command(
+            label="Departamentos", command=lambda: self._show_table("wharehouses")
         )
-        self._add_menu_item(
-            tabelas_menu,
-            "Artigos | Códigos de Barras",
-            handler=lambda: self._show_table("barcodes"),
+        tabelas_menu.add_command(
+            label="Artigos | Códigos de Barras",
+            command=lambda: self._show_table("barcodes"),
         )
-        self._add_menu_item(
-            tabelas_menu,
-            "Artigos | Fichas Técnicas",
-            handler=lambda: self._show_table("fichas_tecnicas"),
+        tabelas_menu.add_command(
+            label="Artigos | Fichas Técnicas",
+            command=lambda: self._show_table("fichas_tecnicas"),
         )
-        main_menu.AppendSubMenu(tabelas_menu, "Tabelas")
+        main_menu.add_cascade(label="Tabelas", menu=tabelas_menu)
 
-        utilitarios_menu = wx.Menu()
-        gestao_documentos_menu = wx.Menu()
-        gestao_documentos_menu.Append(wx.ID_ANY, "Editor de Documentos")
-        gestao_documentos_menu.Append(wx.ID_ANY, "Modelos Activos")
-        gestao_documentos_menu.Append(wx.ID_ANY, "Actualizar Documentos")
-        utilitarios_menu.AppendSubMenu(gestao_documentos_menu, "Gestão de Documentos")
-        utilitarios_menu.Append(wx.ID_ANY, "Configurações")
-        main_menu.AppendSubMenu(utilitarios_menu, "Utilitários")
+        utilitarios_menu = tk.Menu(main_menu, tearoff=False)
+        gestao_documentos_menu = tk.Menu(utilitarios_menu, tearoff=False)
+        gestao_documentos_menu.add_command(label="Editor de Documentos")
+        gestao_documentos_menu.add_command(label="Modelos Activos")
+        gestao_documentos_menu.add_command(label="Actualizar Documentos")
+        utilitarios_menu.add_cascade(label="Gestão de Documentos", menu=gestao_documentos_menu)
+        utilitarios_menu.add_command(label="Configurações")
+        main_menu.add_cascade(label="Utilitários", menu=utilitarios_menu)
 
-        parametrizacoes_menu = wx.Menu()
-        integracao_menu = wx.Menu()
-        integracao_menu.Append(wx.ID_ANY, "NETbo (Excel)")
-        integracao_menu.Append(wx.ID_ANY, "NETbo (API)")
-        integracao_menu.Append(wx.ID_ANY, "StoresAce (Excel)")
-        parametrizacoes_menu.AppendSubMenu(integracao_menu, "Integração")
-        parametrizacoes_menu.Append(wx.ID_ANY, "Moeda")
-        main_menu.AppendSubMenu(parametrizacoes_menu, "Parametrizações")
+        parametrizacoes_menu = tk.Menu(main_menu, tearoff=False)
+        integracao_menu = tk.Menu(parametrizacoes_menu, tearoff=False)
+        integracao_menu.add_command(label="NETbo (Excel)")
+        integracao_menu.add_command(label="NETbo (API)")
+        integracao_menu.add_command(label="StoresAce (Excel)")
+        parametrizacoes_menu.add_cascade(label="Integração", menu=integracao_menu)
+        parametrizacoes_menu.add_command(label="Moeda")
+        main_menu.add_cascade(label="Parametrizações", menu=parametrizacoes_menu)
 
-        main_menu.AppendSeparator()
-        self._add_menu_item(main_menu, "Sair", handler=self.Close)
+        main_menu.add_separator()
+        main_menu.add_command(label="Sair", command=self.root.destroy)
 
-        menu_bar.Append(main_menu, "Menu")
-        self.SetMenuBar(menu_bar)
-
-    def _add_menu_item(self, menu: wx.Menu, label: str, *, handler: Callable[[], None]) -> None:
-        item_id = wx.NewIdRef()
-        menu.Append(item_id, label)
-
-        def _callback(_event: wx.CommandEvent) -> None:
-            handler()
-
-        self.Bind(wx.EVT_MENU, _callback, id=item_id)
+        menu_bar.add_cascade(label="Menu", menu=main_menu)
+        self.root.config(menu=menu_bar)
 
     # ------------------------------------------------------------------
     # Table handling
@@ -339,14 +333,18 @@ class MainWindow(wx.Frame):
         table_kind: str,
         title: str,
     ) -> None:
-        self.table_widget.ClearAll()
+        for item in self.table_widget.get_children():
+            self.table_widget.delete(item)
+
+        self.table_widget.configure(columns=columns)
         self._row_metadata.clear()
         self._barcode_column_index = columns.index("Barcode") if "Barcode" in columns else None
 
-        for index, column in enumerate(columns):
-            self.table_widget.InsertColumn(index, column)
+        for column in columns:
+            self.table_widget.heading(column, text=column, anchor="w")
+            self.table_widget.column(column, anchor="w", width=150, stretch=True)
 
-        for row_index, row in enumerate(rows):
+        for row in rows:
             barcode_value = None
             if self._barcode_column_index is not None:
                 barcode_value = self._get_row_value(row, "Barcode", self._barcode_column_index)
@@ -362,61 +360,74 @@ class MainWindow(wx.Frame):
                 text = "" if value is None else str(value)
                 values.append(text)
 
-            item_index = self.table_widget.InsertItem(row_index, values[0]) if values else -1
-            if item_index == -1:
-                continue
-            for col_index in range(1, len(values)):
-                self.table_widget.SetItem(item_index, col_index, values[col_index])
-
+            item_id = self.table_widget.insert("", "end", values=values)
             if barcode_value:
-                self._row_metadata[item_index] = {"barcode": str(barcode_value)}
+                self._row_metadata[item_id] = {"barcode": str(barcode_value)}
 
         self._toggle_table_visibility(True)
 
         if rows:
-            for col_index in range(len(columns)):
-                self.table_widget.SetColumnWidth(col_index, wx.LIST_AUTOSIZE)
-                width = self.table_widget.GetColumnWidth(col_index)
-                if width <= 0:
-                    self.table_widget.SetColumnWidth(col_index, 120)
-            self.workspace_hint.SetLabel(self.workspace_hint_default_text)
-            self.workspace_hint.Show(False)
-            hint_text = "Dê um duplo clique numa linha com código de barras para visualizar a imagem."
-            self.status_bar.SetStatusText(hint_text)
+            self._set_workspace_hint(self.workspace_hint_default_text, visible=False)
+            hint_text = (
+                "Dê um duplo clique numa linha com código de barras para visualizar a imagem."
+            )
+            self.status_var.set(hint_text)
+            self._auto_size_columns(columns, rows)
         else:
-            self.workspace_hint.SetLabel("Não existem registos para mostrar.")
-            self.workspace_hint.Show(True)
-            self.status_bar.SetStatusText("Sem registos disponíveis.")
-            for col_index in range(len(columns)):
-                self.table_widget.SetColumnWidth(col_index, wx.LIST_AUTOSIZE_USEHEADER)
+            self._set_workspace_hint("Não existem registos para mostrar.", visible=True)
+            self.status_var.set("Sem registos disponíveis.")
 
-        self.table_title.SetLabel(title)
-        self.table_widget.Refresh()
+        self.table_title_var.set(title)
 
     def _toggle_table_visibility(self, show: bool) -> None:
-        self.table_container.Show(show)
-        self.close_table_button.Enable(show)
-        self.table_widget.Enable(show)
-        self.Layout()
+        if show:
+            if not self.table_container.winfo_manager():
+                self.table_container.pack(**self._table_pack_options)
+            self.close_table_button.state(["!disabled"])
+        else:
+            if self.table_container.winfo_manager():
+                self.table_container.pack_forget()
+            self.close_table_button.state(["disabled"])
+
+    def _set_workspace_hint(self, text: str, *, visible: bool) -> None:
+        self.workspace_hint_var.set(text)
+        if visible:
+            if not self.workspace_hint_frame.winfo_manager():
+                self.workspace_hint_frame.pack(fill="x")
+        else:
+            if self.workspace_hint_frame.winfo_manager():
+                self.workspace_hint_frame.pack_forget()
+
+    def _auto_size_columns(self, columns: tuple[str, ...], _rows: list) -> None:
+        font = tkfont.nametofont(self.table_widget.cget("font"))
+        for column in columns:
+            max_width = font.measure(column) + 24
+            for item_id in self.table_widget.get_children():
+                text = self.table_widget.set(item_id, column)
+                max_width = max(max_width, font.measure(text) + 24)
+            self.table_widget.column(column, width=max_width)
 
     def _close_table_view(self) -> None:
-        self.table_widget.ClearAll()
-        self.table_widget.Refresh()
-        self.workspace_hint.SetLabel(self.workspace_hint_default_text)
-        self.workspace_hint.Show(True)
-        self.status_bar.SetStatusText("Tabela fechada.")
+        for item in self.table_widget.get_children():
+            self.table_widget.delete(item)
+        self._set_workspace_hint(self.workspace_hint_default_text, visible=True)
+        self.status_var.set("Tabela fechada.")
         self._toggle_table_visibility(False)
 
     # ------------------------------------------------------------------
     # Barcode handling
     # ------------------------------------------------------------------
-    def _on_item_activated(self, event: wx.ListEvent) -> None:
-        metadata = self._row_metadata.get(event.GetIndex())
+    def _on_item_activated(self, _event: tk.Event) -> None:
+        selection = self.table_widget.selection()
+        if not selection:
+            return
+        item_id = selection[0]
+        metadata = self._row_metadata.get(item_id)
         if not metadata:
-            wx.MessageBox(
-                "Não existe um código de barras para apresentar nesta linha.",
+            messagebox.showinfo(
                 "Código de barras indisponível",
-                parent=self,
+                "Não existe um código de barras para apresentar nesta linha.",
+                parent=self.root,
             )
             return
 
@@ -425,49 +436,45 @@ class MainWindow(wx.Frame):
             self._show_barcode_preview(barcode_value)
 
     def _show_barcode_preview(self, barcode_value: str) -> None:
-        bitmap = self._get_barcode_bitmap(barcode_value)
-        if bitmap is None or not bitmap.IsOk():
-            wx.MessageBox(
-                "Não foi possível gerar a imagem do código de barras.",
+        image = self._get_barcode_image(barcode_value)
+        if image is None:
+            messagebox.showwarning(
                 "Pré-visualização indisponível",
-                parent=self,
-                style=wx.ICON_WARNING,
+                "Não foi possível gerar a imagem do código de barras.",
+                parent=self.root,
             )
             return
 
-        dialog = wx.Dialog(self, title=f"Código de Barras — {barcode_value}")
-        sizer = wx.BoxSizer(wx.VERTICAL)
-        dialog.SetSizer(sizer)
-
-        image = bitmap
-        if image.GetHeight() > 220:
-            scaled = image.ConvertToImage().Scale(
-                image.GetWidth(),
-                220,
-                wx.IMAGE_QUALITY_HIGH,
+        preview_image = image
+        if preview_image.height > 220:
+            ratio = 220 / preview_image.height
+            preview_image = preview_image.resize(
+                (int(preview_image.width * ratio), 220), Image.LANCZOS
             )
-            image = wx.Bitmap(scaled)
 
-        preview = wx.StaticBitmap(dialog, bitmap=image)
-        preview.SetToolTip(barcode_value)
-        sizer.Add(preview, 1, wx.ALIGN_CENTER | wx.ALL, 16)
+        dialog = tk.Toplevel(self.root)
+        dialog.title(f"Código de Barras — {barcode_value}")
+        dialog.transient(self.root)
+        dialog.grab_set()
 
-        sizer.Fit(dialog)
-        dialog.Layout()
-        dialog.CentreOnParent()
-        dialog.Show()
+        photo = ImageTk.PhotoImage(preview_image)
+        label = ttk.Label(dialog, image=photo)
+        label.image = photo  # Prevent garbage collection.
+        label.pack(padx=16, pady=16)
+
         self._open_barcode_dialogs.add(dialog)
 
-        def _cleanup(_event: wx.Event) -> None:
+        def _cleanup(_event: tk.Event) -> None:
             self._open_barcode_dialogs.discard(dialog)
 
-        dialog.Bind(wx.EVT_WINDOW_DESTROY, _cleanup)
+        dialog.bind("<Destroy>", _cleanup)
+        dialog.focus_set()
 
-    def _get_barcode_bitmap(self, barcode_value: str | None) -> wx.Bitmap | None:
+    def _get_barcode_image(self, barcode_value: str | None) -> Image.Image | None:
         if not barcode_value:
             return None
-        if barcode_value in self._barcode_bitmap_cache:
-            return self._barcode_bitmap_cache[barcode_value]
+        if barcode_value in self._barcode_image_cache:
+            return self._barcode_image_cache[barcode_value]
 
         try:
             barcode_class = get_barcode_class("code128")
@@ -482,14 +489,13 @@ class MainWindow(wx.Frame):
                     "font_size": 10,
                 },
             )
-            data = buffer.getvalue()
-            stream = wx.MemoryInputStream(data, len(data))
-            image = wx.Image(stream, wx.BITMAP_TYPE_PNG)
-            if image.IsOk():
-                bitmap = wx.Bitmap(image)
-                self._barcode_bitmap_cache[barcode_value] = bitmap
-                return bitmap
-        except Exception:  # pragma: no cover - invalid barcodes or wx failures
+            buffer.seek(0)
+            image = Image.open(buffer)
+            if image.mode not in {"RGB", "RGBA"}:
+                image = image.convert("RGBA")
+            self._barcode_image_cache[barcode_value] = image
+            return image
+        except Exception:  # pragma: no cover - invalid barcodes or barcode failures
             return None
         return None
 
@@ -591,7 +597,11 @@ class MainWindow(wx.Frame):
                 message += "\n\nImportações concluídas:\n" + "\n".join(imported)
             if missing:
                 message += "\n\nFicheiros em falta:\n" + "\n".join(missing)
-            wx.MessageBox(message, "Importação com erros", parent=self, style=wx.ICON_ERROR)
+            messagebox.showerror(
+                "Importação com erros",
+                message,
+                parent=self.root,
+            )
             return
 
         if not imported:
@@ -602,14 +612,18 @@ class MainWindow(wx.Frame):
                 )
             else:
                 message = "Não existem ficheiros para importar em imports/incoming."
-            wx.MessageBox(message, "Sem dados", parent=self)
+            messagebox.showinfo("Sem dados", message, parent=self.root)
             return
 
         message_lines = ["Importação concluída com sucesso:"] + imported
         if missing:
             message_lines.append("\nFicheiros em falta:")
             message_lines.extend(missing)
-        wx.MessageBox("\n".join(message_lines), "Importação concluída", parent=self)
+        messagebox.showinfo(
+            "Importação concluída",
+            "\n".join(message_lines),
+            parent=self.root,
+        )
 
     def _refresh_active_table(self) -> None:
         if not self._current_table_id:
@@ -618,6 +632,16 @@ class MainWindow(wx.Frame):
             self._show_table(self._current_table_id)
         except Exception:
             pass
+
+    def center_on_screen(self) -> None:
+        self.root.update_idletasks()
+        width = self.root.winfo_width()
+        height = self.root.winfo_height()
+        screen_width = self.root.winfo_screenwidth()
+        screen_height = self.root.winfo_screenheight()
+        x = max((screen_width - width) // 2, 0)
+        y = max((screen_height - height) // 2, 0)
+        self.root.geometry(f"{width}x{height}+{x}+{y}")
 
 
 __all__ = ["MainWindow", "TABLE_CONFIGS", "HOME_TABLE_ID"]

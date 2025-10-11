@@ -24,7 +24,11 @@ while [ "$#" -gt 0 ]; do
       ;;
   esac
 done
-set -- "${POSITIONAL[@]}"
+if [ ${#POSITIONAL[@]} -gt 0 ]; then
+  set -- "${POSITIONAL[@]}"
+else
+  set --
+fi
 
 if [ "$DEBUG_MODE" = "1" ]; then
   : >"$DEBUG_LOG"
@@ -156,7 +160,7 @@ must_import = [
     "dotenv",   # python-dotenv
     "barcode",  # python-barcode
     "PIL",      # Pillow
-    "wx"        # wxPython
+    "tkinter",  # tkinter
 ]
 bad = []
 for m in must_import:
@@ -173,13 +177,18 @@ if bad:
     print("ERRO: Falha ao validar módulos:", bad, file=sys.stderr)
     sys.exit(2)
 
-# Teste mínimo wxPython sem MainLoop
-import wx
-app = wx.App(False)
-frame = wx.Frame(None)
-frame.Show(False)
-frame.Destroy()
-del app
+# Teste mínimo tkinter sem mainloop (compatível com ambientes headless)
+import os
+import sys
+import tkinter as tk
+
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    root = tk.Tcl()
+    root.eval("update")
+else:
+    root = tk.Tk()
+    root.update_idletasks()
+    root.destroy()
 
 print("SMOKE_OK")
 PY
@@ -195,6 +204,10 @@ if [ "$#" -gt 0 ]; then
   echo "🚀 A iniciar comando personalizado: $*"
   exec "$@"
 else
+  if [ -z "${DISPLAY:-}" ] && [ "$(uname -s 2>/dev/null || echo unknown)" = "Linux" ]; then
+    echo "⚠️ Ambiente sem DISPLAY detectado — a ignorar arranque da GUI."
+    exit 0
+  fi
   echo "🚀 A iniciar aplicação gráfica…"
   exec python -m app.ui
 fi

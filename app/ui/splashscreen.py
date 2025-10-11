@@ -1,94 +1,121 @@
-"""Splash screen implemented with wxPython."""
+"""Splash screen implemented with tkinter."""
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Callable
 
-import wx
+import tkinter as tk
+from tkinter import ttk
+
+from PIL import Image, ImageTk
 
 from app.ui.assets import BACKGROUND_IMAGE, SPLASH_IMAGE
-from app.ui.background_utils import BackgroundLayer, ensure_transparent
 
 
-class SplashScreen(wx.Frame):
+class SplashScreen:
     """Simple splash screen that closes when the user clicks it."""
 
-    def __init__(self, *, on_click: Callable[[], None], auto_dismiss_ms: int | None = 2500) -> None:
-        style = wx.FRAME_NO_TASKBAR | wx.STAY_ON_TOP | wx.BORDER_NONE
-        super().__init__(None, title="Bem-vindo", style=style)
-
+    def __init__(
+        self,
+        master: tk.Misc,
+        *,
+        on_click: Callable[[], None],
+        auto_dismiss_ms: int | None = 2500,
+    ) -> None:
+        self._master = master
         self._callback = on_click
-        self._is_available = False
+        self._auto_job: str | None = None
         self._dismissed = False
-        self._auto_timer: wx.CallLater | None = None
+        self._is_available = False
 
-        panel = wx.Panel(self)
-        ensure_transparent(panel)
+        window = tk.Toplevel(master)
+        self._window = window
+        window.withdraw()
+        window.overrideredirect(True)
+        try:
+            window.attributes("-topmost", True)
+        except tk.TclError:  # pragma: no cover - attribute unsupported
+            pass
 
-        self._background = BackgroundLayer(panel, BACKGROUND_IMAGE, "splash-background")
-        self._image: wx.StaticBitmap | None = None
+        container = ttk.Frame(window)
+        container.pack(fill="both", expand=True)
 
-        splash_bitmap = None
+        self._image_label = ttk.Label(container)
+        self._image_label.pack(fill="both", expand=True)
+        self._image_photo: ImageTk.PhotoImage | None = None
+
         if SPLASH_IMAGE.exists():
-            try:
-                splash_bitmap = wx.Bitmap(str(SPLASH_IMAGE))
-            except Exception:  # pragma: no cover - invalid/corrupt file
-                splash_bitmap = None
+            self._image_photo = self._load_image(SPLASH_IMAGE)
+        if self._image_photo is None and BACKGROUND_IMAGE.exists():
+            self._image_photo = self._load_image(BACKGROUND_IMAGE)
 
-        layout = wx.BoxSizer(wx.VERTICAL)
-        panel.SetSizer(layout)
-
-        if splash_bitmap and splash_bitmap.IsOk():
-            image = wx.StaticBitmap(panel, bitmap=splash_bitmap)
-            image.SetName("splash-image")
-            self._image = image
-            layout.AddStretchSpacer()
-            layout.Add(image, 0, wx.ALIGN_CENTER | wx.ALL, 0)
-            layout.AddStretchSpacer()
-            width, height = splash_bitmap.GetSize()
-            self.SetClientSize((width, height))
-            self._is_available = True
-        elif self._background.label is not None:
-            width, height = self._background.label.GetSize()
-            self.SetClientSize((width, height))
+        if self._image_photo is not None:
+            self._image_label.configure(image=self._image_photo)
+            window.geometry(
+                f"{self._image_photo.width()}x{self._image_photo.height()}"
+            )
             self._is_available = True
         else:
-            # Fallback size when no image could be loaded.
-            self.SetClientSize((800, 500))
+            window.geometry("800x500")
+            self._is_available = True
 
-        panel.Layout()
-        self._bind_events(panel)
+        self._bind_events()
 
         if auto_dismiss_ms is not None and auto_dismiss_ms > 0:
-            self._auto_timer = wx.CallLater(auto_dismiss_ms, self._handle_timeout)
+            self._auto_job = window.after(auto_dismiss_ms, self._handle_timeout)
 
     @property
     def is_available(self) -> bool:
         return self._is_available
 
-    def _bind_events(self, panel: wx.Panel) -> None:
-        self.Bind(wx.EVT_LEFT_UP, self._handle_click)
-        self.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+    def show(self) -> None:
+        if not self._window.winfo_exists():
+            return
+        self._window.deiconify()
+        self._center_on_screen()
+        try:
+            self._window.focus_force()
+        except tk.TclError:
+            pass
 
-        panel.Bind(wx.EVT_LEFT_UP, self._handle_click)
-        panel.Bind(wx.EVT_RIGHT_UP, self._handle_click)
-        panel.Bind(wx.EVT_CHAR_HOOK, self._handle_key)
+    def destroy(self) -> None:
+        if self._window.winfo_exists():
+            self._window.destroy()
 
-        if self._image is not None:
-            self._image.Bind(wx.EVT_LEFT_UP, self._handle_click)
-            self._image.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+    def _load_image(self, path: Path) -> ImageTk.PhotoImage | None:
+        try:
+            image = Image.open(path)
+        except Exception:  # pragma: no cover - invalid/corrupt file
+            return None
+        width, height = image.size
+        if width > 1200 or height > 900:
+            ratio = min(1200 / width, 900 / height)
+            image = image.resize((int(width * ratio), int(height * ratio)), Image.LANCZOS)
+        return ImageTk.PhotoImage(image)
 
-        if self._background.label is not None:
-            self._background.label.Bind(wx.EVT_LEFT_UP, self._handle_click)
-            self._background.label.Bind(wx.EVT_RIGHT_UP, self._handle_click)
+    def _center_on_screen(self) -> None:
+        self._window.update_idletasks()
+        width = self._window.winfo_width()
+        height = self._window.winfo_height()
+        screen_width = self._window.winfo_screenwidth()
+        screen_height = self._window.winfo_screenheight()
+        x = max((screen_width - width) // 2, 0)
+        y = max((screen_height - height) // 2, 0)
+        self._window.geometry(f"{width}x{height}+{x}+{y}")
 
-    def _handle_click(self, _event: wx.Event) -> None:
+    def _bind_events(self) -> None:
+        widgets = [self._window, self._image_label]
+        for widget in widgets:
+            widget.bind("<ButtonRelease-1>", self._handle_click)
+            widget.bind("<ButtonRelease-3>", self._handle_click)
+            widget.bind("<KeyPress>", self._handle_key)
+
+    def _handle_click(self, _event: tk.Event) -> None:
         self._invoke_callback()
 
-    def _handle_key(self, event: wx.KeyEvent) -> None:
-        if event.GetKeyCode() in {wx.WXK_ESCAPE, wx.WXK_RETURN, wx.WXK_SPACE}:
+    def _handle_key(self, event: tk.Event) -> None:
+        if event.keysym in {"Escape", "Return", "space"}:
             self._invoke_callback()
-        else:
-            event.Skip()
 
     def _handle_timeout(self) -> None:
         self._invoke_callback()
@@ -98,16 +125,18 @@ class SplashScreen(wx.Frame):
             return
 
         self._dismissed = True
-        if self._auto_timer is not None:
-            self._auto_timer.Stop()
-            self._auto_timer = None
-        self.Hide()
+        if self._auto_job is not None:
+            try:
+                self._window.after_cancel(self._auto_job)
+            except tk.TclError:  # pragma: no cover - timer already cancelled
+                pass
+            self._auto_job = None
+        self._window.withdraw()
 
         def _finalise() -> None:
             try:
                 self._callback()
             finally:
-                if not self.IsBeingDeleted():
-                    self.Destroy()
+                self.destroy()
 
-        wx.CallAfter(_finalise)
+        self._master.after(0, _finalise)
