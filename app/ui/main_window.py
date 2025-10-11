@@ -173,7 +173,9 @@ class MainWindow:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill="x")
 
-        title_font = tkfont.Font(size=18, weight="semibold")
+        # tkinter only recognises "normal" and "bold" weight values, so use the
+        # supported option here to avoid runtime errors on macOS/Linux.
+        title_font = tkfont.Font(size=18, weight="bold")
         title_label = ttk.Label(header_frame, text="Requisições Internas", font=title_font)
         title_label.pack(side="left", padx=12, pady=12)
 
@@ -203,7 +205,7 @@ class MainWindow:
         header_row = ttk.Frame(self.table_container)
         header_row.pack(fill="x")
 
-        table_title_font = tkfont.Font(size=16, weight="semibold")
+        table_title_font = tkfont.Font(size=16, weight="bold")
         self.table_title_var = tk.StringVar(value="")
         table_title_label = ttk.Label(
             header_row, textvariable=self.table_title_var, font=table_title_font
