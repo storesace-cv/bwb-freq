@@ -83,10 +83,17 @@ except Exception as exc:
             print("Sugestão: remove o ficheiro local pytz.py do repositório antes de correr o setup.", file=sys.stderr)
     sys.exit(3)
 
-# Teste mínimo tkinter: instanciar Tk e criar/destruir uma janela
+# Teste mínimo tkinter: compatível com ambientes headless
 import tkinter as tk
-root = tk.Tk()
-root.update_idletasks()
-root.destroy()
+
+if sys.platform.startswith("linux") and not os.environ.get("DISPLAY"):
+    interp = tk.Tcl()
+    interp.eval("update")
+else:
+    root = tk.Tk()
+    try:
+        root.update_idletasks()
+    finally:
+        root.destroy()
 print("SMOKE_OK")
 PY
