@@ -173,6 +173,9 @@ class MainWindow:
         header_frame = ttk.Frame(main_frame)
         header_frame.pack(fill="x")
 
+        self.menu_button = ttk.Menubutton(header_frame, text="Menu")
+        self.menu_button.pack(side="left", padx=12, pady=12)
+
         # tkinter only recognises "normal" and "bold" weight values, so use the
         # supported option here to avoid runtime errors on macOS/Linux.
         title_font = tkfont.Font(size=18, weight="bold")
@@ -303,6 +306,9 @@ class MainWindow:
         main_menu.add_command(label="Sair", command=self.root.destroy)
 
         menu_bar.add_cascade(label="Menu", menu=main_menu)
+        if hasattr(self, "menu_button"):
+            self.menu_button["menu"] = main_menu
+
         self.root.config(menu=menu_bar)
 
     # ------------------------------------------------------------------
