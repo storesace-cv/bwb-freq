@@ -29,12 +29,13 @@ fi
 
 echo "📦 A instalar/atualizar dependências de requirements.txt…"
 
-# 1) Garante que o venv tem pip (auto-bootstrap via ensurepip se faltar)
-"$PY" -m pip --version >/dev/null 2>&1 || {
-  echo "ℹ️  pip não encontrado no intérprete atual — a executar ensurepip…"
-  if ! "$PY" -m ensurepip --upgrade >/dev/null 2>&1; then
-    echo "❌ Falha ao executar ensurepip neste Python."
-    echo "   Sugestão: recriar venv ->  /opt/homebrew/bin/python3.11 -m venv .venv && source .venv/bin/activate"
+# 2) Instalar/atualizar requirements se necessário
+STAMP=".venv/.deps.ok"
+if [ ! -f "$STAMP" ] || [ "requirements.txt" -nt "$STAMP" ]; then
+  echo "📦 A instalar/atualizar dependências de requirements.txt…"
+  pip cache purge >/dev/null 2>&1 || true
+  if ! pip install --no-cache-dir -r requirements.txt; then
+    echo "❌ Falha a instalar dependências (pip)."
     exit 1
   fi
 }
@@ -43,31 +44,23 @@ echo "📦 A instalar/atualizar dependências de requirements.txt…"
 "$PY" -m pip -q install --upgrade pip setuptools wheel
 echo "Pip/Setuptools atualizados."
 
-# 3) Instala requirements
-"$PY" -m pip install -r requirements.txt
-echo "No broken requirements found."
-
-# 4) Smoke test apenas do que está no requirements (tkinter é ignorado)
+# 3) Smoke test: imports básicos
 echo "🧪 A executar smoke test dos pacotes…"
-"$PY" - <<'PY'
-import importlib, re, pathlib, sys
-reqs = pathlib.Path("requirements.txt").read_text().splitlines()
+python - <<'PY'
+import importlib
+import os
+import pathlib
+import sys
 
-alias_map = {
-    "Pillow": "PIL",
-    "python-dateutil": "dateutil",
-    "python-dotenv": "dotenv",
-    "python-barcode": "barcode",
-}
-mods = []
-for line in reqs:
-    line = line.strip()
-    if not line or line.startswith("#"):
-        continue
-    pkg = re.split(r"[<>= \[]", line, 1)[0]
-    mods.append(alias_map.get(pkg, pkg))
-
-failed = []
+mods = [
+    "pandas",
+    "openpyxl",
+    "dotenv",           # python-dotenv
+    "barcode",          # python-barcode
+    "PIL",              # Pillow
+    "tkinter",          # tkinter
+]
+bad = []
 for m in mods:
     try:
         importlib.import_module(m)
@@ -78,5 +71,22 @@ if failed:
     print("ERRO: Falha ao validar módulos:", failed)
     sys.exit(1)
 
-print("✅ Smoke test concluído (tkinter ignorado por não ser dependency).")
+project_root = pathlib.Path(os.environ.get("FREQ_PROJECT_ROOT", "")).resolve()
+try:
+    pytz = importlib.import_module("pytz")
+    importlib.import_module("pytz.exceptions")
+except Exception as exc:
+    print("ERRO: Dependência pytz em falta ou corrompida:", exc, file=sys.stderr)
+    if getattr(locals().get("pytz"), "__path__", None) is None:
+        pytz_file = pathlib.Path(getattr(pytz, "__file__", "")).resolve() if 'pytz' in locals() else None
+        if pytz_file and project_root and project_root in pytz_file.parents:
+            print("Sugestão: remove o ficheiro local pytz.py do repositório antes de correr o setup.", file=sys.stderr)
+    sys.exit(3)
+
+# Teste mínimo tkinter: instanciar Tk e criar/destruir uma janela
+import tkinter as tk
+root = tk.Tk()
+root.update_idletasks()
+root.destroy()
+print("SMOKE_OK")
 PY
