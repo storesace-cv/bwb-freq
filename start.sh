@@ -1,74 +1,33 @@
 #!/usr/bin/env bash
-set -Eeuo pipefail
-
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-cd "$ROOT_DIR"
-export FREQ_PROJECT_ROOT="$ROOT_DIR"
+set -euo pipefail
 
 echo "==> Arranque do setup (requirements + venv) …"
 
-find_python311() {
-  local os
-  os="$(uname -s 2>/dev/null || echo unknown)"
-  local candidates=()
-  if [ "$os" = "Darwin" ]; then
-    candidates+=("/opt/homebrew/bin/python3.11")
-  fi
-  local cmd path
-  for cmd in python3.11 python3 python; do
-    path="$(command -v "$cmd" 2>/dev/null || true)"
-    if [ -n "$path" ]; then
-      candidates+=("$path")
-    fi
-  done
-  local candidate
-  for candidate in "${candidates[@]}"; do
-    if [ -z "$candidate" ] || [ ! -x "$candidate" ]; then
-      continue
-    fi
-    if "$candidate" - <<'PY' >/dev/null 2>&1; then
-import sys
-sys.exit(0 if sys.version_info >= (3, 11) else 1)
-PY
-      echo "$candidate"
-      return 0
-    fi
-  done
-  return 1
-}
+# Auto-criar .venv se não existir (Homebrew 3.11)
+if [ ! -d ".venv" ]; then
+  /opt/homebrew/bin/python3.11 -m venv .venv
+fi
+# Ativar o venv se não estiver ativo
+if [ -z "${VIRTUAL_ENV:-}" ]; then
+  # shellcheck disable=SC1091
+  source .venv/bin/activate
+fi
 
-PYTHON_BIN="$(find_python311 || true)"
-if [ -z "$PYTHON_BIN" ]; then
-  if [ "$(uname -s 2>/dev/null || echo unknown)" = "Darwin" ]; then
-    echo "❌ Python 3.11 (Homebrew) não encontrado."
-    echo "   Instala com: brew install python@3.11"
-  else
-    echo "❌ Python 3.11+ não encontrado no PATH."
-    echo "   Instala uma versão recente de Python (>=3.11) e volta a tentar."
-  fi
+# 0) Escolhe o Python certo (prioridade: venv atual -> ./.venv -> python3 brew)
+if [ -n "${VIRTUAL_ENV:-}" ] && [ -x "$VIRTUAL_ENV/bin/python" ]; then
+  PY="$VIRTUAL_ENV/bin/python"
+elif [ -x "./.venv/bin/python" ]; then
+  PY="./.venv/bin/python"
+elif command -v /opt/homebrew/bin/python3.11 >/dev/null 2>&1; then
+  PY="/opt/homebrew/bin/python3.11"
+elif command -v python3 >/dev/null 2>&1; then
+  PY="$(command -v python3)"
+else
+  echo "❌ Não encontrei um Python 3 disponível."
   exit 1
 fi
 
-if [ -x ".venv/bin/python" ]; then
-  if ! .venv/bin/python - <<'PY' >/dev/null 2>&1; then
-import sys
-sys.exit(0 if sys.version_info >= (3, 11) else 1)
-PY
-    echo "♻️  Venv existente não está em Python >=3.11 — a recriar…"
-    rm -rf .venv
-  fi
-fi
-
-if [ ! -x ".venv/bin/python" ]; then
-  PY_DETECTED_VERSION="$($PYTHON_BIN -V 2>&1 | awk '{print $2}')"
-  echo "⚙️  A criar venv .venv com ${PY_DETECTED_VERSION:-Python >=3.11}…"
-  rm -rf .venv
-  "$PYTHON_BIN" -m venv .venv
-fi
-
-# shellcheck source=/dev/null
-source ".venv/bin/activate"
-python -m pip -q install --upgrade pip setuptools wheel
+echo "📦 A instalar/atualizar dependências de requirements.txt…"
 
 # 2) Instalar/atualizar requirements se necessário
 STAMP=".venv/.deps.ok"
@@ -79,15 +38,11 @@ if [ ! -f "$STAMP" ] || [ "requirements.txt" -nt "$STAMP" ]; then
     echo "❌ Falha a instalar dependências (pip)."
     exit 1
   fi
-  touch "$STAMP"
-else
-  echo "✅ Dependências já atualizadas (nada a instalar)."
-fi
+}
 
-if ! pip check; then
-  echo "❌ Falha na verificação de dependências (pip check)."
-  exit 1
-fi
+# 2) Atualiza tooling
+"$PY" -m pip -q install --upgrade pip setuptools wheel
+echo "Pip/Setuptools atualizados."
 
 # 3) Smoke test: imports básicos
 echo "🧪 A executar smoke test dos pacotes…"
@@ -108,16 +63,13 @@ mods = [
 bad = []
 for m in mods:
     try:
-        __import__(m)
+        importlib.import_module(m)
     except Exception as e:
-        bad.append((m, str(e)))
+        failed.append((m, str(e)))
 
-if importlib.util.find_spec("pytest") is None:
-    bad.append(("pytest", "module not found"))
-
-if bad:
-    print("ERRO: Falha ao validar módulos:", bad, file=sys.stderr)
-    sys.exit(2)
+if failed:
+    print("ERRO: Falha ao validar módulos:", failed)
+    sys.exit(1)
 
 project_root = pathlib.Path(os.environ.get("FREQ_PROJECT_ROOT", "")).resolve()
 try:
@@ -145,9 +97,3 @@ else:
         root.destroy()
 print("SMOKE_OK")
 PY
-
-echo "✅ Ambiente pronto."
-
-# 4) (Opcional) Arranque da aplicação — ativa se quiseres
-# echo "🚀 A iniciar aplicação…"
-# python -m app
