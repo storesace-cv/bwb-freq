@@ -365,7 +365,11 @@ class MainWindow:
         if table_kind == "barcodes":
             self.table_widget.configure(show="tree headings")
             self.table_widget.configure(columns=display_columns)
-            self.table_widget.configure(displaycolumns=display_columns + ["#0"])
+            # ``#0`` is the implicit tree column. Requesting it explicitly in
+            # ``displaycolumns`` causes a ``TclError`` on some Tk builds (notably
+            # on macOS).  Showing the tree column is already handled by
+            # ``show="tree headings"``, so only expose the data columns here.
+            self.table_widget.configure(displaycolumns=display_columns)
             self.table_widget.heading("#0", text="Ver Código")
             self.table_widget.column(
                 "#0", anchor="center", width=84, stretch=False, minwidth=64
